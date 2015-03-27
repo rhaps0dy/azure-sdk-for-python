@@ -266,15 +266,21 @@ class _WinHttpRequest(c_void_p):
         '''
         Opens the request.
 
-        method: the request VERB 'GET', 'POST', etc.
-        url: the url to connect
+        method:
+            the request VERB 'GET', 'POST', etc.
+        url:
+            the url to connect
         '''
-        _WinHttpRequest._SetTimeouts(self, 0, 65000, 65000, 65000)
-
         flag = VARIANT.create_bool_false()
         _method = BSTR(method)
         _url = BSTR(url)
         _WinHttpRequest._Open(self, _method, _url, flag)
+
+    def set_timeout(self, timeout_in_seconds):
+        ''' Sets up the timeout for the request. '''
+        timeout_in_ms = int(timeout_in_seconds * 1000)
+        _WinHttpRequest._SetTimeouts(
+            self, 0, timeout_in_ms, timeout_in_ms, timeout_in_ms)
 
     def set_request_header(self, name, value):
         ''' Sets the request header. '''
@@ -324,16 +330,11 @@ class _WinHttpRequest(c_void_p):
     def response_body(self):
         '''
         Gets response body as a SAFEARRAY and converts the SAFEARRAY to str.
-        If it is an xml file, it always contains 3 characters before <?xml,
-        so we remove them.
         '''
         var_respbody = VARIANT()
         _WinHttpRequest._ResponseBody(self, byref(var_respbody))
         if var_respbody.is_safearray_of_bytes():
             respbody = var_respbody.str_from_safearray()
-            if respbody[3:].startswith(b'<?xml') and\
-               respbody.startswith(b'\xef\xbb\xbf'):
-                respbody = respbody[3:]
             return respbody
         else:
             return ''
@@ -390,12 +391,13 @@ class _HTTPConnection(object):
 
     ''' Class corresponding to httplib HTTPConnection class. '''
 
-    def __init__(self, host, cert_file=None, key_file=None, protocol='http'):
+    def __init__(self, host, cert_file, protocol, timeout):
         ''' initialize the IWinHttpWebRequest Com Object.'''
         self.host = unicode(host)
         self.cert_file = cert_file
         self._httprequest = _WinHttpRequest()
         self.protocol = protocol
+        self.timeout = timeout
         clsid = GUID('{2087C2F4-2CEF-4953-A8AB-66779B670495}')
         iid = GUID('{016FE2EC-B2C8-45F8-B23B-39E53A75396B}')
         _CoInitialize(None)
@@ -418,6 +420,7 @@ class _HTTPConnection(object):
 
         protocol = unicode(self.protocol + '://')
         url = protocol + self.host + unicode(uri)
+        self._httprequest.set_timeout(self.timeout)
         self._httprequest.open(unicode(method), url)
 
         # sets certificate for the connection if cert_file is set.

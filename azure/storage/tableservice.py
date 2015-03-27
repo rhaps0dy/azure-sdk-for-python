@@ -15,30 +15,30 @@
 from azure import (
     WindowsAzureError,
     TABLE_SERVICE_HOST_BASE,
+    DEFAULT_HTTP_TIMEOUT,
     DEV_TABLE_HOST,
     _convert_class_to_xml,
-    _convert_response_to_feeds,
     _dont_fail_not_exist,
     _dont_fail_on_exist,
     _get_request_body,
     _int_or_none,
-    _parse_response,
     _parse_response_for_dict,
     _parse_response_for_dict_filter,
     _str,
     _str_or_none,
     _update_request_uri_query_local_storage,
     _validate_not_none,
+    _ETreeXmlToObject,
     )
 from azure.http import HTTPRequest
 from azure.http.batchclient import _BatchClient
 from azure.storage import (
     StorageServiceProperties,
     _convert_entity_to_xml,
+    _convert_etree_element_to_entity,
+    _convert_etree_element_to_table,
     _convert_response_to_entity,
     _convert_table_to_xml,
-    _convert_xml_to_entity,
-    _convert_xml_to_table,
     _sign_storage_table_request,
     _update_storage_table_header,
     )
@@ -52,25 +52,33 @@ class TableService(_StorageClient):
     '''
 
     def __init__(self, account_name=None, account_key=None, protocol='https',
-                 host_base=TABLE_SERVICE_HOST_BASE, dev_host=DEV_TABLE_HOST):
+                 host_base=TABLE_SERVICE_HOST_BASE, dev_host=DEV_TABLE_HOST,
+                 timeout=DEFAULT_HTTP_TIMEOUT):
         '''
-        account_name: your storage account name, required for all operations.
-        account_key: your storage account key, required for all operations.
-        protocol: Optional. Protocol. Defaults to http.
+        account_name:
+            your storage account name, required for all operations.
+        account_key:
+            your storage account key, required for all operations.
+        protocol:
+            Optional. Protocol. Defaults to http.
         host_base:
             Optional. Live host base url. Defaults to Azure url. Override this
             for on-premise.
-        dev_host: Optional. Dev host url. Defaults to localhost.
+        dev_host:
+            Optional. Dev host url. Defaults to localhost.
+        timeout:
+            Optional. Timeout for the http request, in seconds.
         '''
         super(TableService, self).__init__(
-            account_name, account_key, protocol, host_base, dev_host)
+            account_name, account_key, protocol, host_base, dev_host, timeout)
 
     def begin_batch(self):
         if self._batchclient is None:
             self._batchclient = _BatchClient(
                 service_instance=self,
                 account_key=self.account_key,
-                account_name=self.account_name)
+                account_name=self.account_name,
+                timeout=self._httpclient.timeout)
         return self._batchclient.begin_batch()
 
     def commit_batch(self):
@@ -97,14 +105,16 @@ class TableService(_StorageClient):
         request.headers = _update_storage_table_header(request)
         response = self._perform_request(request)
 
-        return _parse_response(response, StorageServiceProperties)
+        return _ETreeXmlToObject.parse_response(
+            response, StorageServiceProperties)
 
     def set_table_service_properties(self, storage_service_properties):
         '''
         Sets the properties of a storage account's Table Service, including
         Windows Azure Storage Analytics.
 
-        storage_service_properties: StorageServiceProperties object.
+        storage_service_properties:
+            StorageServiceProperties object.
         '''
         _validate_not_none('storage_service_properties',
                            storage_service_properties)
@@ -125,8 +135,10 @@ class TableService(_StorageClient):
         '''
         Returns a list of tables under the specified account.
 
-        table_name: Optional.  The specific table to query.
-        top: Optional. Maximum number of tables to return.
+        table_name:
+            Optional.  The specific table to query.
+        top:
+            Optional. Maximum number of tables to return.
         next_table_name:
             Optional. When top is used, the next table name is stored in
             result.x_ms_continuation['NextTableName']
@@ -148,7 +160,8 @@ class TableService(_StorageClient):
         request.headers = _update_storage_table_header(request)
         response = self._perform_request(request)
 
-        return _convert_response_to_feeds(response, _convert_xml_to_table)
+        return _ETreeXmlToObject.convert_response_to_feeds(
+            response, _convert_etree_element_to_table)
 
     def create_table(self, table, fail_on_exist=False):
         '''
@@ -158,7 +171,8 @@ class TableService(_StorageClient):
             Name of the table to create. Table name may contain only
             alphanumeric characters and cannot begin with a numeric character.
             It is case-insensitive and must be from 3 to 63 characters long.
-        fail_on_exist: Specify whether throw exception when table exists.
+        fail_on_exist:
+            Specify whether throw exception when table exists.
         '''
         _validate_not_none('table', table)
         request = HTTPRequest()
@@ -182,7 +196,8 @@ class TableService(_StorageClient):
 
     def delete_table(self, table_name, fail_not_exist=False):
         '''
-        table_name: Name of the table to delete.
+        table_name:
+            Name of the table to delete.
         fail_not_exist:
             Specify whether throw exception when table doesn't exist.
         '''
@@ -209,9 +224,12 @@ class TableService(_StorageClient):
         '''
         Get an entity in a table; includes the $select options.
 
-        partition_key: PartitionKey of the entity.
-        row_key: RowKey of the entity.
-        select: Property names to select.
+        partition_key:
+            PartitionKey of the entity.
+        row_key:
+            RowKey of the entity.
+        select:
+            Property names to select.
         '''
         _validate_not_none('table_name', table_name)
         _validate_not_none('partition_key', partition_key)
@@ -237,12 +255,15 @@ class TableService(_StorageClient):
         '''
         Get entities in a table; includes the $filter and $select options.
 
-        table_name: Table to query.
+        table_name:
+            Table to query.
         filter:
             Optional. Filter as described at
             http://msdn.microsoft.com/en-us/library/windowsazure/dd894031.aspx
-        select: Optional. Property names to select from the entities.
-        top: Optional. Maximum number of entities to return.
+        select:
+            Optional. Property names to select from the entities.
+        top:
+            Optional. Maximum number of entities to return.
         next_partition_key:
             Optional. When top is used, the next partition key is stored in
             result.x_ms_continuation['NextPartitionKey']
@@ -267,18 +288,21 @@ class TableService(_StorageClient):
         request.headers = _update_storage_table_header(request)
         response = self._perform_request(request)
 
-        return _convert_response_to_feeds(response, _convert_xml_to_entity)
+        return _ETreeXmlToObject.convert_response_to_feeds(
+            response, _convert_etree_element_to_entity)
 
     def insert_entity(self, table_name, entity,
                       content_type='application/atom+xml'):
         '''
         Inserts a new entity into a table.
 
-        table_name: Table name.
+        table_name:
+            Table name.
         entity:
             Required. The entity object to insert. Could be a dict format or
             entity object.
-        content_type: Required. Must be set to application/atom+xml
+        content_type:
+            Required. Must be set to application/atom+xml
         '''
         _validate_not_none('table_name', table_name)
         _validate_not_none('entity', entity)
@@ -302,13 +326,17 @@ class TableService(_StorageClient):
         Updates an existing entity in a table. The Update Entity operation
         replaces the entire entity and can be used to remove properties.
 
-        table_name: Table name.
-        partition_key: PartitionKey of the entity.
-        row_key: RowKey of the entity.
+        table_name:
+            Table name.
+        partition_key:
+            PartitionKey of the entity.
+        row_key:
+            RowKey of the entity.
         entity:
             Required. The entity object to insert. Could be a dict format or
             entity object.
-        content_type: Required. Must be set to application/atom+xml
+        content_type:
+            Required. Must be set to application/atom+xml
         if_match:
             Optional. Specifies the condition for which the merge should be
             performed. To force an unconditional merge, set to the wildcard
@@ -344,13 +372,17 @@ class TableService(_StorageClient):
         operation does not replace the existing entity as the Update Entity
         operation does.
 
-        table_name: Table name.
-        partition_key: PartitionKey of the entity.
-        row_key: RowKey of the entity.
+        table_name:
+            Table name.
+        partition_key:
+            PartitionKey of the entity.
+        row_key:
+            RowKey of the entity.
         entity:
             Required. The entity object to insert. Can be a dict format or
             entity object.
-        content_type: Required. Must be set to application/atom+xml
+        content_type:
+            Required. Must be set to application/atom+xml
         if_match:
             Optional. Specifies the condition for which the merge should be
             performed. To force an unconditional merge, set to the wildcard
@@ -384,10 +416,14 @@ class TableService(_StorageClient):
         '''
         Deletes an existing entity in a table.
 
-        table_name: Table name.
-        partition_key: PartitionKey of the entity.
-        row_key: RowKey of the entity.
-        content_type: Required. Must be set to application/atom+xml
+        table_name:
+            Table name.
+        partition_key:
+            PartitionKey of the entity.
+        row_key:
+            RowKey of the entity.
+        content_type:
+            Required. Must be set to application/atom+xml
         if_match:
             Optional. Specifies the condition for which the delete should be
             performed. To force an unconditional delete, set to the wildcard
@@ -420,13 +456,17 @@ class TableService(_StorageClient):
         exist in the table. Because this operation can insert or update an
         entity, it is also known as an "upsert" operation.
 
-        table_name: Table name.
-        partition_key: PartitionKey of the entity.
-        row_key: RowKey of the entity.
+        table_name:
+            Table name.
+        partition_key:
+            PartitionKey of the entity.
+        row_key:
+            RowKey of the entity.
         entity:
             Required. The entity object to insert. Could be a dict format or
             entity object.
-        content_type: Required. Must be set to application/atom+xml
+        content_type:
+            Required. Must be set to application/atom+xml
         '''
         _validate_not_none('table_name', table_name)
         _validate_not_none('partition_key', partition_key)
@@ -455,13 +495,17 @@ class TableService(_StorageClient):
         in the table. Because this operation can insert or update an entity,
         it is also known as an "upsert" operation.
 
-        table_name: Table name.
-        partition_key: PartitionKey of the entity.
-        row_key: RowKey of the entity.
+        table_name:
+            Table name.
+        partition_key:
+            PartitionKey of the entity.
+        row_key:
+            RowKey of the entity.
         entity:
             Required. The entity object to insert. Could be a dict format or
             entity object.
-        content_type: Required. Must be set to application/atom+xml
+        content_type:
+            Required. Must be set to application/atom+xml
         '''
         _validate_not_none('table_name', table_name)
         _validate_not_none('partition_key', partition_key)

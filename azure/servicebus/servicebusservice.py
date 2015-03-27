@@ -17,9 +17,10 @@ import os
 import time
 
 from azure import (
+    _ETreeXmlToObject,
     WindowsAzureError,
+    DEFAULT_HTTP_TIMEOUT,
     SERVICE_BUS_HOST_BASE,
-    _convert_response_to_feeds,
     _dont_fail_not_exist,
     _dont_fail_on_exist,
     _encode_base64,
@@ -43,6 +44,7 @@ from azure.servicebus import (
     AZURE_SERVICEBUS_NAMESPACE,
     AZURE_SERVICEBUS_ACCESS_KEY,
     AZURE_SERVICEBUS_ISSUER,
+    _convert_event_hub_to_xml,
     _convert_topic_to_xml,
     _convert_response_to_topic,
     _convert_queue_to_xml,
@@ -51,10 +53,11 @@ from azure.servicebus import (
     _convert_response_to_subscription,
     _convert_rule_to_xml,
     _convert_response_to_rule,
-    _convert_xml_to_queue,
-    _convert_xml_to_topic,
-    _convert_xml_to_subscription,
-    _convert_xml_to_rule,
+    _convert_response_to_event_hub,
+    _convert_etree_element_to_queue,
+    _convert_etree_element_to_topic,
+    _convert_etree_element_to_subscription,
+    _convert_etree_element_to_rule,
     _create_message,
     _service_bus_error_handler,
     )
@@ -65,7 +68,7 @@ class ServiceBusService(object):
     def __init__(self, service_namespace=None, account_key=None, issuer=None,
                  x_ms_version='2011-06-01', host_base=SERVICE_BUS_HOST_BASE,
                  shared_access_key_name=None, shared_access_key_value=None,
-                 authentication=None):
+                 authentication=None, timeout=DEFAULT_HTTP_TIMEOUT):
         '''
         Initializes the service bus service for a namespace with the specified
         authentication settings (SAS or ACS).
@@ -81,7 +84,8 @@ class ServiceBusService(object):
             ACS authentication issuer. If None, the value is set to the
             AZURE_SERVICEBUS_ISSUER env variable.
             Note that if both SAS and ACS settings are specified, SAS is used.
-        x_ms_version: Unused. Kept for backwards compatibility.
+        x_ms_version:
+            Unused. Kept for backwards compatibility.
         host_base:
             Optional. Live host base url. Defaults to Azure url. Override this
             for on-premise.
@@ -94,6 +98,8 @@ class ServiceBusService(object):
         authentication:
             Instance of authentication class. If this is specified, then
             ACS and SAS parameters are ignored.
+        timeout:
+            Optional. Timeout for the http request, in seconds.
         '''
         self.requestid = None
         self.service_namespace = service_namespace
@@ -125,7 +131,7 @@ class ServiceBusService(object):
                 raise WindowsAzureError(
                     'You need to provide servicebus access key and Issuer OR shared access key and value')
 
-        self._httpclient = _HTTPClient(service_instance=self)
+        self._httpclient = _HTTPClient(service_instance=self, timeout=timeout)
         self._filter = self._httpclient.perform_request
 
     # Backwards compatibility:
@@ -172,20 +178,34 @@ class ServiceBusService(object):
         '''
         Sets the proxy server host and port for the HTTP CONNECT Tunnelling.
 
-        host: Address of the proxy. Ex: '192.168.0.100'
-        port: Port of the proxy. Ex: 6000
-        user: User for proxy authorization.
-        password: Password for proxy authorization.
+        host:
+            Address of the proxy. Ex: '192.168.0.100'
+        port:
+            Port of the proxy. Ex: 6000
+        user:
+            User for proxy authorization.
+        password:
+            Password for proxy authorization.
         '''
         self._httpclient.set_proxy(host, port, user, password)
+
+    @property
+    def timeout(self):
+        return self._httpclient.timeout
+
+    @timeout.setter
+    def timeout(self, value):
+        self._httpclient.timeout = value
 
     def create_queue(self, queue_name, queue=None, fail_on_exist=False):
         '''
         Creates a new queue. Once created, this queue's resource manifest is
         immutable.
 
-        queue_name: Name of the queue to create.
-        queue: Queue object to create.
+        queue_name:
+            Name of the queue to create.
+        queue:
+            Queue object to create.
         fail_on_exist:
             Specify whether to throw an exception when the queue exists.
         '''
@@ -213,7 +233,8 @@ class ServiceBusService(object):
         Deletes an existing queue. This operation will also remove all
         associated state including messages in the queue.
 
-        queue_name: Name of the queue to delete.
+        queue_name:
+            Name of the queue to delete.
         fail_not_exist:
             Specify whether to throw an exception if the queue doesn't exist.
         '''
@@ -239,7 +260,8 @@ class ServiceBusService(object):
         '''
         Retrieves an existing queue.
 
-        queue_name: Name of the queue.
+        queue_name:
+            Name of the queue.
         '''
         _validate_not_none('queue_name', queue_name)
         request = HTTPRequest()
@@ -264,15 +286,18 @@ class ServiceBusService(object):
         request.headers = self._update_service_bus_header(request)
         response = self._perform_request(request)
 
-        return _convert_response_to_feeds(response, _convert_xml_to_queue)
+        return _ETreeXmlToObject.convert_response_to_feeds(
+            response, _convert_etree_element_to_queue)
 
     def create_topic(self, topic_name, topic=None, fail_on_exist=False):
         '''
         Creates a new topic. Once created, this topic resource manifest is
         immutable.
 
-        topic_name: Name of the topic to create.
-        topic: Topic object to create.
+        topic_name:
+            Name of the topic to create.
+        topic:
+            Topic object to create.
         fail_on_exist:
             Specify whether to throw an exception when the topic exists.
         '''
@@ -300,7 +325,8 @@ class ServiceBusService(object):
         Deletes an existing topic. This operation will also remove all
         associated state including associated subscriptions.
 
-        topic_name: Name of the topic to delete.
+        topic_name:
+            Name of the topic to delete.
         fail_not_exist:
             Specify whether throw exception when topic doesn't exist.
         '''
@@ -326,7 +352,8 @@ class ServiceBusService(object):
         '''
         Retrieves the description for the specified topic.
 
-        topic_name: Name of the topic.
+        topic_name:
+            Name of the topic.
         '''
         _validate_not_none('topic_name', topic_name)
         request = HTTPRequest()
@@ -351,7 +378,8 @@ class ServiceBusService(object):
         request.headers = self._update_service_bus_header(request)
         response = self._perform_request(request)
 
-        return _convert_response_to_feeds(response, _convert_xml_to_topic)
+        return _ETreeXmlToObject.convert_response_to_feeds(
+            response, _convert_etree_element_to_topic)
 
     def create_rule(self, topic_name, subscription_name, rule_name, rule=None,
                     fail_on_exist=False):
@@ -359,9 +387,12 @@ class ServiceBusService(object):
         Creates a new rule. Once created, this rule's resource manifest is
         immutable.
 
-        topic_name: Name of the topic.
-        subscription_name: Name of the subscription.
-        rule_name: Name of the rule.
+        topic_name:
+            Name of the topic.
+        subscription_name:
+            Name of the subscription.
+        rule_name:
+            Name of the rule.
         fail_on_exist:
             Specify whether to throw an exception when the rule exists.
         '''
@@ -393,8 +424,10 @@ class ServiceBusService(object):
         '''
         Deletes an existing rule.
 
-        topic_name: Name of the topic.
-        subscription_name: Name of the subscription.
+        topic_name:
+            Name of the topic.
+        subscription_name:
+            Name of the subscription.
         rule_name:
             Name of the rule to delete.  DEFAULT_RULE_NAME=$Default.
             Use DEFAULT_RULE_NAME to delete default rule for the subscription.
@@ -427,9 +460,12 @@ class ServiceBusService(object):
         '''
         Retrieves the description for the specified rule.
 
-        topic_name: Name of the topic.
-        subscription_name: Name of the subscription.
-        rule_name: Name of the rule.
+        topic_name:
+            Name of the topic.
+        subscription_name:
+            Name of the subscription.
+        rule_name:
+            Name of the rule.
         '''
         _validate_not_none('topic_name', topic_name)
         _validate_not_none('subscription_name', subscription_name)
@@ -450,8 +486,10 @@ class ServiceBusService(object):
         '''
         Retrieves the rules that exist under the specified subscription.
 
-        topic_name: Name of the topic.
-        subscription_name: Name of the subscription.
+        topic_name:
+            Name of the topic.
+        subscription_name:
+            Name of the subscription.
         '''
         _validate_not_none('topic_name', topic_name)
         _validate_not_none('subscription_name', subscription_name)
@@ -465,7 +503,8 @@ class ServiceBusService(object):
         request.headers = self._update_service_bus_header(request)
         response = self._perform_request(request)
 
-        return _convert_response_to_feeds(response, _convert_xml_to_rule)
+        return _ETreeXmlToObject.convert_response_to_feeds(
+            response, _convert_etree_element_to_rule)
 
     def create_subscription(self, topic_name, subscription_name,
                             subscription=None, fail_on_exist=False):
@@ -473,8 +512,10 @@ class ServiceBusService(object):
         Creates a new subscription. Once created, this subscription resource
         manifest is immutable.
 
-        topic_name: Name of the topic.
-        subscription_name: Name of the subscription.
+        topic_name:
+            Name of the topic.
+        subscription_name:
+            Name of the subscription.
         fail_on_exist:
             Specify whether throw exception when subscription exists.
         '''
@@ -505,8 +546,10 @@ class ServiceBusService(object):
         '''
         Deletes an existing subscription.
 
-        topic_name: Name of the topic.
-        subscription_name: Name of the subscription to delete.
+        topic_name:
+            Name of the topic.
+        subscription_name:
+            Name of the subscription to delete.
         fail_not_exist:
             Specify whether to throw an exception when the subscription
             doesn't exist.
@@ -535,8 +578,10 @@ class ServiceBusService(object):
         '''
         Gets an existing subscription.
 
-        topic_name: Name of the topic.
-        subscription_name: Name of the subscription.
+        topic_name:
+            Name of the topic.
+        subscription_name:
+            Name of the subscription.
         '''
         _validate_not_none('topic_name', topic_name)
         _validate_not_none('subscription_name', subscription_name)
@@ -555,7 +600,8 @@ class ServiceBusService(object):
         '''
         Retrieves the subscriptions in the specified topic.
 
-        topic_name: Name of the topic.
+        topic_name:
+            Name of the topic.
         '''
         _validate_not_none('topic_name', topic_name)
         request = HTTPRequest()
@@ -566,8 +612,8 @@ class ServiceBusService(object):
         request.headers = self._update_service_bus_header(request)
         response = self._perform_request(request)
 
-        return _convert_response_to_feeds(response,
-                                          _convert_xml_to_subscription)
+        return _ETreeXmlToObject.convert_response_to_feeds(
+            response, _convert_etree_element_to_subscription)
 
     def send_topic_message(self, topic_name, message=None):
         '''
@@ -577,8 +623,10 @@ class ServiceBusService(object):
         to exceed its quota, a quota exceeded error is returned and the
         message will be rejected.
 
-        topic_name: Name of the topic.
-        message: Message object containing message body and properties.
+        topic_name:
+            Name of the topic.
+        message:
+            Message object containing message body and properties.
         '''
         _validate_not_none('topic_name', topic_name)
         _validate_not_none('message', message)
@@ -609,9 +657,12 @@ class ServiceBusService(object):
         Message command should be issued, or the lock duration period can
         expire.
 
-        topic_name: Name of the topic.
-        subscription_name: Name of the subscription.
-        timeout: Optional. The timeout parameter is expressed in seconds.
+        topic_name:
+            Name of the topic.
+        subscription_name:
+            Name of the subscription.
+        timeout:
+            Optional. The timeout parameter is expressed in seconds.
         '''
         _validate_not_none('topic_name', topic_name)
         _validate_not_none('subscription_name', subscription_name)
@@ -636,8 +687,10 @@ class ServiceBusService(object):
         message to be unlocked. A message must have first been locked by a
         receiver before this operation is called.
 
-        topic_name: Name of the topic.
-        subscription_name: Name of the subscription.
+        topic_name:
+            Name of the topic.
+        subscription_name:
+            Name of the subscription.
         sequence_number:
             The sequence number of the message to be unlocked as returned in
             BrokerProperties['SequenceNumber'] by the Peek Message operation.
@@ -668,9 +721,12 @@ class ServiceBusService(object):
         sufficient for an application; that is, using this operation it is
         possible for messages to be lost if processing fails.
 
-        topic_name: Name of the topic.
-        subscription_name: Name of the subscription.
-        timeout: Optional. The timeout parameter is expressed in seconds.
+        topic_name:
+            Name of the topic.
+        subscription_name:
+            Name of the subscription.
+        timeout:
+            Optional. The timeout parameter is expressed in seconds.
         '''
         _validate_not_none('topic_name', topic_name)
         _validate_not_none('subscription_name', subscription_name)
@@ -695,8 +751,10 @@ class ServiceBusService(object):
         previously locked message is successful to maintain At-Least-Once
         delivery assurances.
 
-        topic_name: Name of the topic.
-        subscription_name: Name of the subscription.
+        topic_name:
+            Name of the topic.
+        subscription_name:
+            Name of the subscription.
         sequence_number:
             The sequence number of the message to be deleted as returned in
             BrokerProperties['SequenceNumber'] by the Peek Message operation.
@@ -727,8 +785,10 @@ class ServiceBusService(object):
         to exceed its quota, a quota exceeded error is returned and the
         message will be rejected.
 
-        queue_name: Name of the queue.
-        message: Message object containing message body and properties.
+        queue_name:
+            Name of the queue.
+        message:
+            Message object containing message body and properties.
         '''
         _validate_not_none('queue_name', queue_name)
         _validate_not_none('message', message)
@@ -755,8 +815,10 @@ class ServiceBusService(object):
         unlock it for other receivers, an Unlock Message command should be
         issued, or the lock duration period can expire.
 
-        queue_name: Name of the queue.
-        timeout: Optional. The timeout parameter is expressed in seconds.
+        queue_name:
+            Name of the queue.
+        timeout:
+            Optional. The timeout parameter is expressed in seconds.
         '''
         _validate_not_none('queue_name', queue_name)
         request = HTTPRequest()
@@ -777,7 +839,8 @@ class ServiceBusService(object):
         message to be unlocked. A message must have first been locked by a
         receiver before this operation is called.
 
-        queue_name: Name of the queue.
+        queue_name:
+            Name of the queue.
         sequence_number:
             The sequence number of the message to be unlocked as returned in
             BrokerProperties['SequenceNumber'] by the Peek Message operation.
@@ -805,8 +868,10 @@ class ServiceBusService(object):
         for an application; that is, using this operation it is possible for
         messages to be lost if processing fails.
 
-        queue_name: Name of the queue.
-        timeout: Optional. The timeout parameter is expressed in seconds.
+        queue_name:
+            Name of the queue.
+        timeout:
+            Optional. The timeout parameter is expressed in seconds.
         '''
         _validate_not_none('queue_name', queue_name)
         request = HTTPRequest()
@@ -827,7 +892,8 @@ class ServiceBusService(object):
         locked message is successful to maintain At-Least-Once delivery
         assurances.
 
-        queue_name: Name of the queue.
+        queue_name:
+            Name of the queue.
         sequence_number:
             The sequence number of the message to be deleted as returned in
             BrokerProperties['SequenceNumber'] by the Peek Message operation.
@@ -852,11 +918,13 @@ class ServiceBusService(object):
         '''
         Receive a message from a queue for processing.
 
-        queue_name: Name of the queue.
+        queue_name:
+            Name of the queue.
         peek_lock:
             Optional. True to retrieve and lock the message. False to read and
             delete the message. Default is True (lock).
-        timeout: Optional. The timeout parameter is expressed in seconds.
+        timeout:
+            Optional. The timeout parameter is expressed in seconds.
         '''
         if peek_lock:
             return self.peek_lock_queue_message(queue_name, timeout)
@@ -868,12 +936,15 @@ class ServiceBusService(object):
         '''
         Receive a message from a subscription for processing.
 
-        topic_name: Name of the topic.
-        subscription_name: Name of the subscription.
+        topic_name:
+            Name of the topic.
+        subscription_name:
+            Name of the subscription.
         peek_lock:
             Optional. True to retrieve and lock the message. False to read and
             delete the message. Default is True (lock).
-        timeout: Optional. The timeout parameter is expressed in seconds.
+        timeout:
+            Optional. The timeout parameter is expressed in seconds.
         '''
         if peek_lock:
             return self.peek_lock_subscription_message(topic_name,
@@ -883,6 +954,132 @@ class ServiceBusService(object):
             return self.read_delete_subscription_message(topic_name,
                                                          subscription_name,
                                                          timeout)
+
+    def create_event_hub(self, hub_name, hub=None, fail_on_exist=False):
+        '''
+        Creates a new Event Hub.
+
+        hub_name:
+            Name of event hub.
+        hub:
+            Optional. Event hub properties. Instance of EventHub class.
+        hub.message_retention_in_days:
+            Number of days to retain the events for this Event Hub.
+        hub.status: Status of the Event Hub (enabled or disabled).
+        hub.user_metadata: User metadata.
+        hub.partition_count: Number of shards on the Event Hub.
+        fail_on_exist:
+            Specify whether to throw an exception when the event hub exists.
+        '''
+        _validate_not_none('hub_name', hub_name)
+        request = HTTPRequest()
+        request.method = 'PUT'
+        request.host = self._get_host()
+        request.path = '/' + _str(hub_name) + '?api-version=2014-01'
+        request.body = _get_request_body(_convert_event_hub_to_xml(hub))
+        request.path, request.query = _update_request_uri_query(request)
+        request.headers = self._update_service_bus_header(request)
+        if not fail_on_exist:
+            try:
+                self._perform_request(request)
+                return True
+            except WindowsAzureError as ex:
+                _dont_fail_on_exist(ex)
+                return False
+        else:
+            self._perform_request(request)
+            return True
+
+    def update_event_hub(self, hub_name, hub=None):
+        '''
+        Updates an Event Hub.
+
+        hub_name:
+            Name of event hub.
+        hub:
+            Optional. Event hub properties. Instance of EventHub class.
+        hub.message_retention_in_days:
+            Number of days to retain the events for this Event Hub.
+        '''
+        _validate_not_none('hub_name', hub_name)
+        request = HTTPRequest()
+        request.method = 'PUT'
+        request.host = self._get_host()
+        request.path = '/' + _str(hub_name) + '?api-version=2014-01'
+        request.body = _get_request_body(_convert_event_hub_to_xml(hub))
+        request.path, request.query = _update_request_uri_query(request)
+        request.headers.append(('If-Match', '*'))
+        request.headers = self._update_service_bus_header(request)
+        response = self._perform_request(request)
+
+        return _convert_response_to_event_hub(response)
+
+    def delete_event_hub(self, hub_name, fail_not_exist=False):
+        '''
+        Deletes an Event Hub. This operation will also remove all associated
+        state.
+
+        hub_name:
+            Name of the event hub to delete.
+        fail_not_exist:
+            Specify whether to throw an exception if the event hub doesn't exist.
+        '''
+        _validate_not_none('hub_name', hub_name)
+        request = HTTPRequest()
+        request.method = 'DELETE'
+        request.host = self._get_host()
+        request.path = '/' + _str(hub_name) + '?api-version=2014-01'
+        request.path, request.query = _update_request_uri_query(request)
+        request.headers = self._update_service_bus_header(request)
+        if not fail_not_exist:
+            try:
+                self._perform_request(request)
+                return True
+            except WindowsAzureError as ex:
+                _dont_fail_not_exist(ex)
+                return False
+        else:
+            self._perform_request(request)
+            return True
+
+    def get_event_hub(self, hub_name):
+        '''
+        Retrieves an existing event hub.
+
+        hub_name:
+            Name of the event hub.
+        '''
+        _validate_not_none('hub_name', hub_name)
+        request = HTTPRequest()
+        request.method = 'GET'
+        request.host = self._get_host()
+        request.path = '/' + _str(hub_name) + ''
+        request.path, request.query = _update_request_uri_query(request)
+        request.headers = self._update_service_bus_header(request)
+        response = self._perform_request(request)
+
+        return _convert_response_to_event_hub(response)
+
+    def send_event(self, hub_name, message, device_id=None,
+                   broker_properties=None):
+        '''
+        Sends a new message event to an Event Hub.
+        '''
+        _validate_not_none('hub_name', hub_name)
+        request = HTTPRequest()
+        request.method = 'POST'
+        request.host = self._get_host()
+        if device_id:
+            request.path = '/{0}/publishers/{1}/messages?api-version=2014-01'.format(hub_name, device_id)
+        else:
+            request.path = '/{0}/messages?api-version=2014-01'.format(hub_name)
+        if broker_properties:
+            request.headers.append(
+                ('BrokerProperties', str(broker_properties)))
+        request.body = _get_request_body(message)
+        request.path, request.query = _update_request_uri_query(request)
+        request.headers = self._update_service_bus_header(request)
+        self._perform_request(request)
 
     def _get_host(self):
         return self.service_namespace + self.host_base
@@ -951,8 +1148,10 @@ class ServiceBusWrapTokenAuthentication:
         '''
         Returns token for the request.
 
-        host: the service bus service request.
-        path: the service bus service request.
+        host:
+            the service bus service request.
+        path:
+            the service bus service request.
         '''
         wrap_scope = 'http://' + host + path + self.issuer + self.account_key
 
@@ -976,7 +1175,7 @@ class ServiceBusWrapTokenAuthentication:
         request.headers.append(('Content-Length', str(len(request.body))))
         resp = httpclient.perform_request(request)
 
-        token = resp.body.decode('utf-8')
+        token = resp.body.decode('utf-8-sig')
         token = url_unquote(token[token.find('=') + 1:token.rfind('&')])
         _tokens[wrap_scope] = token
 

@@ -13,6 +13,7 @@
 # limitations under the License.
 #--------------------------------------------------------------------------
 from azure import (
+    DEFAULT_HTTP_TIMEOUT,
     MANAGEMENT_HOST,
     _str
     )
@@ -30,17 +31,20 @@ class SchedulerManagementService(_ServiceManagementClient):
     '''
 
     def __init__(self, subscription_id=None, cert_file=None,
-                 host=MANAGEMENT_HOST, request_session=None):
+                 host=MANAGEMENT_HOST, request_session=None,
+                 timeout=DEFAULT_HTTP_TIMEOUT):
         '''
         Initializes the scheduler management service.
 
-        subscription_id: Subscription to manage.
+        subscription_id:
+            Subscription to manage.
         cert_file:
             Path to .pem certificate file (httplib), or location of the
             certificate in your Personal certificate store (winhttp) in the
             CURRENT_USER\my\CertificateName format.
             If a request_session is specified, then this is unused.
-        host: Live ServiceClient URL. Defaults to Azure public cloud.
+        host:
+            Live ServiceClient URL. Defaults to Azure public cloud.
         request_session:
             Session object to use for http requests. If this is specified, it
             replaces the default use of httplib or winhttp. Also, the cert_file
@@ -51,9 +55,11 @@ class SchedulerManagementService(_ServiceManagementClient):
             library. To use .pem certificate authentication with requests
             library, set the path to the .pem file on the session.cert
             attribute.
+        timeout:
+            Optional. Timeout for the http request, in seconds.
         '''
         super(SchedulerManagementService, self).__init__(
-            subscription_id, cert_file, host, request_session)
+            subscription_id, cert_file, host, request_session, timeout)
 
     #--Operations for scheduler ----------------------------------------
     def list_cloud_services(self):

@@ -19,14 +19,17 @@ from azure import (
     _update_request_uri_query,
     WindowsAzureError,
     WindowsAzureBatchOperationError,
-    _get_children_from_path,
     url_unquote,
+    DEFAULT_HTTP_TIMEOUT,
     _ERROR_CANNOT_FIND_PARTITION_KEY,
     _ERROR_CANNOT_FIND_ROW_KEY,
     _ERROR_INCORRECT_TABLE_IN_BATCH,
     _ERROR_INCORRECT_PARTITION_KEY_IN_BATCH,
     _ERROR_DUPLICATE_ROW_KEY_IN_BATCH,
     _ERROR_BATCH_COMMIT_FAIL,
+    ETree,
+    _get_etree_text,
+    _etree_entity_feed_namespaces,
     )
 from azure.http import HTTPError, HTTPRequest, HTTPResponse
 from azure.http.httpclient import _HTTPClient
@@ -35,7 +38,6 @@ from azure.storage import (
     METADATA_NS,
     _sign_storage_table_request,
     )
-from xml.dom import minidom
 
 _DATASERVICES_NS = 'http://schemas.microsoft.com/ado/2007/08/dataservices'
 
@@ -55,9 +57,10 @@ class _BatchClient(_HTTPClient):
     '''
 
     def __init__(self, service_instance, account_key, account_name,
-                 protocol='http'):
+                 protocol='http', timeout=DEFAULT_HTTP_TIMEOUT):
         _HTTPClient.__init__(self, service_instance, account_name=account_name,
-                             account_key=account_key, protocol=protocol)
+                             account_key=account_key, protocol=protocol,
+                             timeout=timeout)
         self.is_batch = False
         self.batch_requests = []
         self.batch_table = ''
@@ -69,7 +72,8 @@ class _BatchClient(_HTTPClient):
         Extracts table name from request.uri. The request.uri has either
         "/mytable(...)" or "/mytable" format.
 
-        request: the request to insert, update or delete entity
+        request:
+            the request to insert, update or delete entity
         '''
         if '(' in request.path:
             pos = request.path.find('(')
@@ -83,16 +87,15 @@ class _BatchClient(_HTTPClient):
         request.path if it is not a POST request. Only insert operation request
         is a POST request and the PartitionKey is in the request body.
 
-        request: the request to insert, update or delete entity
+        request:
+            the request to insert, update or delete entity
         '''
         if request.method == 'POST':
-            doc = minidom.parseString(request.body)
-            part_key = _get_children_from_path(
-                doc, 'entry', 'content', (METADATA_NS, 'properties'),
-                (_DATASERVICES_NS, 'PartitionKey'))
-            if not part_key:
+            doc = ETree.fromstring(request.body)
+            part_key = doc.find('./atom:content/m:properties/d:PartitionKey', _etree_entity_feed_namespaces)
+            if part_key is None:
                 raise WindowsAzureError(_ERROR_CANNOT_FIND_PARTITION_KEY)
-            return part_key[0].firstChild.nodeValue
+            return _get_etree_text(part_key)
         else:
             uri = url_unquote(request.path)
             pos1 = uri.find('PartitionKey=\'')
@@ -107,16 +110,15 @@ class _BatchClient(_HTTPClient):
         request.path if it is not a POST request. Only insert operation request
         is a POST request and the Rowkey is in the request body.
 
-        request: the request to insert, update or delete entity
+        request:
+            the request to insert, update or delete entity
         '''
         if request.method == 'POST':
-            doc = minidom.parseString(request.body)
-            row_key = _get_children_from_path(
-                doc, 'entry', 'content', (METADATA_NS, 'properties'),
-                (_DATASERVICES_NS, 'RowKey'))
-            if not row_key:
+            doc = ETree.fromstring(request.body)
+            row_key = doc.find('./atom:content/m:properties/d:RowKey', _etree_entity_feed_namespaces)
+            if row_key is None:
                 raise WindowsAzureError(_ERROR_CANNOT_FIND_ROW_KEY)
-            return row_key[0].firstChild.nodeValue
+            return _get_etree_text(row_key)
         else:
             uri = url_unquote(request.path)
             pos1 = uri.find('RowKey=\'')
@@ -131,7 +133,8 @@ class _BatchClient(_HTTPClient):
         Validates that all requests have the same table name. Set the table
         name if it is the first request for the batch operation.
 
-        request: the request to insert, update or delete entity
+        request:
+            the request to insert, update or delete entity
         '''
         if self.batch_table:
             if self.get_request_table(request) != self.batch_table:
@@ -144,7 +147,8 @@ class _BatchClient(_HTTPClient):
         Validates that all requests have the same PartitiionKey. Set the
         PartitionKey if it is the first request for the batch operation.
 
-        request: the request to insert, update or delete entity
+        request:
+            the request to insert, update or delete entity
         '''
         if self.batch_partition_key:
             if self.get_request_partition_key(request) != \
@@ -158,7 +162,8 @@ class _BatchClient(_HTTPClient):
         Validates that all requests have the different RowKey and adds RowKey
         to existing RowKey list.
 
-        request: the request to insert, update or delete entity
+        request:
+            the request to insert, update or delete entity
         '''
         if self.batch_row_keys:
             if self.get_request_row_key(request) in self.batch_row_keys:
@@ -170,11 +175,16 @@ class _BatchClient(_HTTPClient):
         '''
         Starts the batch operation. Intializes the batch variables
 
-        is_batch: batch operation flag.
-        batch_table: the table name of the batch operation
-        batch_partition_key: the PartitionKey of the batch requests.
-        batch_row_keys: the RowKey list of adding requests.
-        batch_requests: the list of the requests.
+        is_batch:
+            batch operation flag.
+        batch_table:
+            the table name of the batch operation
+        batch_partition_key:
+            the PartitionKey of the batch requests.
+        batch_row_keys:
+            the RowKey list of adding requests.
+        batch_requests:
+            the list of the requests.
         '''
         self.is_batch = True
         self.batch_table = ''
@@ -186,7 +196,8 @@ class _BatchClient(_HTTPClient):
         '''
         Adds request to batch operation.
 
-        request: the request to insert, update or delete entity
+        request:
+            the request to insert, update or delete entity
         '''
         self.validate_request_table(request)
         self.validate_request_partition_key(request)
@@ -327,13 +338,12 @@ class _BatchClient(_HTTPClient):
         return HTTPResponse(int(status), reason.strip(), headers, body)
 
     def _report_batch_error(self, response):
-        xml = response.body.decode('utf-8')
-        doc = minidom.parseString(xml)
+        doc = ETree.fromstring(response.body)
 
-        n = _get_children_from_path(doc, (METADATA_NS, 'error'), 'code')
-        code = n[0].firstChild.nodeValue if n and n[0].firstChild else ''
+        code_element = doc.find('./m:code', _etree_entity_feed_namespaces)
+        code = _get_etree_text(code_element) if code_element is not None else ''
 
-        n = _get_children_from_path(doc, (METADATA_NS, 'error'), 'message')
-        message = n[0].firstChild.nodeValue if n and n[0].firstChild else xml
+        message_element = doc.find('./m:message', _etree_entity_feed_namespaces)
+        message = _get_etree_text(message_element) if message_element is not None else ''
 
         raise WindowsAzureBatchOperationError(message, code)

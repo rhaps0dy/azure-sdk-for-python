@@ -486,12 +486,13 @@ class ServiceBusTest(AzureTestCase):
         self._create_queue(self.queue_name)
 
         # Act
-        start = time.clock()
+        start = datetime.now()
         received_msg = self.sbs.receive_queue_message(self.queue_name, True, 5)
-        duration = time.clock() - start
+        duration = datetime.now() - start
 
         # Assert
-        self.assertTrue(duration > 3 and duration < 7)
+        self.assertGreater(duration.total_seconds(), 3)
+        self.assertLess(duration.total_seconds(), 10)
         self.assertIsNotNone(received_msg)
         self.assertIsNone(received_msg.body)
 
@@ -500,15 +501,31 @@ class ServiceBusTest(AzureTestCase):
         self._create_queue(self.queue_name)
 
         # Act
-        start = time.clock()
+        start = datetime.now()
         received_msg = self.sbs.receive_queue_message(
             self.queue_name, True, 50)
-        duration = time.clock() - start
+        duration = datetime.now() - start
 
         # Assert
-        self.assertTrue(duration > 48 and duration < 52)
+        self.assertGreater(duration.total_seconds(), 48)
+        self.assertLess(duration.total_seconds(), 55)
         self.assertIsNotNone(received_msg)
         self.assertIsNone(received_msg.body)
+
+    def test_receive_queue_message_timeout_50_http_timeout(self):
+        # Arrange
+        self._create_queue(self.queue_name)
+
+        # Act
+        self.sbs.timeout = 10
+        try:
+            received_msg = self.sbs.receive_queue_message(
+                self.queue_name, True, 50)
+            self.assertTrue(False, 'Failed to trigger an http timeout')
+        except:
+            pass
+
+        # Assert
 
     #--Test cases for topics/subscriptions ------------------------------------
     def test_create_topic_no_options(self):

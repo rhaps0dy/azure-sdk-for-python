@@ -8,6 +8,12 @@ __pycache__/
 # Build results
 /bin/
 /obj/
+/dist/
+/MANIFEST
+
+# Result of running python setup.py install/pip install -e
+/build/
+/azure.egg-info/
 
 # Test results
 /TestResults/
@@ -33,3 +39,4 @@ $RECYCLE.BIN/
 .idea
 src/build
 *.iml
+/doc/_build

@@ -30,12 +30,13 @@ from distutils.core import setup
 # python setup.py sdist upload
 
 setup(name='azure',
-      version='0.9.0.post1',
+      version='0.10.0',
       description='Microsoft Azure client APIs',
+      long_description=open('README.rst', 'r').read(),
       license='Apache License 2.0',
       author='Microsoft Corporation',
       author_email='ptvshelp@microsoft.com',
-      url='https://github.com/WindowsAzure/azure-sdk-for-python',
+      url='https://github.com/Azure/azure-sdk-for-python',
       classifiers=[
         'Development Status :: 5 - Production/Stable',
         'Programming Language :: Python',
@@ -50,5 +51,7 @@ setup(name='azure',
                 'azure.servicebus',
                 'azure.storage',
                 'azure.servicemanagement'],
-      install_requires=['python-dateutil']
+      install_requires=['python-dateutil', 
+                        'pyopenssl',
+                        'futures']
      )

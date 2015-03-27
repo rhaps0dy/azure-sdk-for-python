@@ -14,6 +14,7 @@
 #--------------------------------------------------------------------------
 from azure import (
     WindowsAzureError,
+    DEFAULT_HTTP_TIMEOUT,
     MANAGEMENT_HOST,
     _str,
     _validate_not_none,
@@ -29,7 +30,6 @@ from azure.servicemanagement import (
     Disk,
     Disks,
     Locations,
-    Operation,
     HostedService,
     HostedServices,
     Images,
@@ -48,6 +48,7 @@ from azure.servicemanagement import (
     Subscriptions,
     SubscriptionCertificate,
     SubscriptionCertificates,
+    SubscriptionOperationCollection,
     VirtualNetworkSites,
     VMImages,
     _XmlSerializer,
@@ -59,17 +60,20 @@ from azure.servicemanagement.servicemanagementclient import (
 class ServiceManagementService(_ServiceManagementClient):
 
     def __init__(self, subscription_id=None, cert_file=None,
-                 host=MANAGEMENT_HOST, request_session=None):
+                 host=MANAGEMENT_HOST, request_session=None,
+                 timeout=DEFAULT_HTTP_TIMEOUT):
         '''
         Initializes the management service.
 
-        subscription_id: Subscription to manage.
+        subscription_id:
+            Subscription to manage.
         cert_file:
             Path to .pem certificate file (httplib), or location of the
             certificate in your Personal certificate store (winhttp) in the
             CURRENT_USER\my\CertificateName format.
             If a request_session is specified, then this is unused.
-        host: Live ServiceClient URL. Defaults to Azure public cloud.
+        host:
+            Live ServiceClient URL. Defaults to Azure public cloud.
         request_session:
             Session object to use for http requests. If this is specified, it
             replaces the default use of httplib or winhttp. Also, the cert_file
@@ -80,9 +84,11 @@ class ServiceManagementService(_ServiceManagementClient):
             library. To use .pem certificate authentication with requests
             library, set the path to the .pem file on the session.cert
             attribute.
+        timeout:
+            Optional. Timeout for the http request, in seconds.
         '''
         super(ServiceManagementService, self).__init__(
-            subscription_id, cert_file, host, request_session)
+            subscription_id, cert_file, host, request_session, timeout)
 
     #--Operations for subscriptions --------------------------------------
     def list_role_sizes(self):
@@ -115,7 +121,8 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Returns system properties for the specified storage account.
 
-        service_name: Name of the storage service account.
+        service_name:
+            Name of the storage service account.
         '''
         _validate_not_none('service_name', service_name)
         return self._perform_get(self._get_storage_service_path(service_name),
@@ -126,7 +133,8 @@ class ServiceManagementService(_ServiceManagementClient):
         Returns the primary and secondary access keys for the specified
         storage account.
 
-        service_name: Name of the storage service account.
+        service_name:
+            Name of the storage service account.
         '''
         _validate_not_none('service_name', service_name)
         return self._perform_get(
@@ -138,7 +146,8 @@ class ServiceManagementService(_ServiceManagementClient):
         Regenerates the primary or secondary access key for the specified
         storage account.
 
-        service_name: Name of the storage service account.
+        service_name:
+            Name of the storage service account.
         key_type:
             Specifies which key to regenerate. Valid values are:
             Primary, Secondary
@@ -225,7 +234,8 @@ class ServiceManagementService(_ServiceManagementClient):
         Updates the label, the description, and enables or disables the
         geo-replication status for a storage account in Windows Azure.
 
-        service_name: Name of the storage service account.
+        service_name:
+            Name of the storage service account.
         description:
             A description for the storage account. The description may be up
             to 1024 characters in length.
@@ -264,7 +274,8 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Deletes the specified storage account from Windows Azure.
 
-        service_name: Name of the storage service account.
+        service_name:
+            Name of the storage service account.
         '''
         _validate_not_none('service_name', service_name)
         return self._perform_delete(
@@ -275,7 +286,8 @@ class ServiceManagementService(_ServiceManagementClient):
         Checks to see if the specified storage account name is available, or
         if it has already been taken.
 
-        service_name: Name of the storage service account.
+        service_name:
+            Name of the storage service account.
         '''
         _validate_not_none('service_name', service_name)
         return self._perform_get(
@@ -300,7 +312,8 @@ class ServiceManagementService(_ServiceManagementClient):
         not part of an affinity group; and optionally, information on the
         service's deployments.
 
-        service_name: Name of the hosted service.
+        service_name:
+            Name of the hosted service.
         embed_detail:
             When True, the management service returns properties for all
             deployments of the service, as well as for the service itself.
@@ -370,7 +383,8 @@ class ServiceManagementService(_ServiceManagementClient):
         Updates the label and/or the description for a hosted service in
         Windows Azure.
 
-        service_name: Name of the hosted service.
+        service_name:
+            Name of the hosted service.
         label:
             A name for the hosted service. The name may be up to 100 characters
             in length. You must specify a value for either Label or
@@ -400,7 +414,8 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Deletes the specified hosted service from Windows Azure.
 
-        service_name: Name of the hosted service.
+        service_name:
+            Name of the hosted service.
         '''
         _validate_not_none('service_name', service_name)
         return self._perform_delete(self._get_hosted_service_path(service_name))
@@ -410,7 +425,8 @@ class ServiceManagementService(_ServiceManagementClient):
         Returns configuration information, status, and system properties for
         a deployment.
 
-        service_name: Name of the hosted service.
+        service_name:
+            Name of the hosted service.
         deployment_slot:
             The environment to which the hosted service is deployed. Valid
             values are: staging, production
@@ -427,8 +443,10 @@ class ServiceManagementService(_ServiceManagementClient):
         Returns configuration information, status, and system properties for a
         deployment.
 
-        service_name: Name of the hosted service.
-        deployment_name: The name of the deployment.
+        service_name:
+            Name of the hosted service.
+        deployment_name:
+            The name of the deployment.
         '''
         _validate_not_none('service_name', service_name)
         _validate_not_none('deployment_name', deployment_name)
@@ -446,7 +464,8 @@ class ServiceManagementService(_ServiceManagementClient):
         Uploads a new service package and creates a new deployment on staging
         or production.
 
-        service_name: Name of the hosted service.
+        service_name:
+            Name of the hosted service.
         deployment_slot:
             The environment to which the hosted service is deployed. Valid
             values are: staging, production
@@ -504,18 +523,22 @@ class ServiceManagementService(_ServiceManagementClient):
                 extended_properties),
             async=True)
 
-    def delete_deployment(self, service_name, deployment_name):
+    def delete_deployment(self, service_name, deployment_name,delete_vhd=False):
         '''
         Deletes the specified deployment.
 
-        service_name: Name of the hosted service.
-        deployment_name: The name of the deployment.
+        service_name:
+            Name of the hosted service.
+        deployment_name:
+            The name of the deployment.
         '''
         _validate_not_none('service_name', service_name)
         _validate_not_none('deployment_name', deployment_name)
+        path= self._get_deployment_path_using_name(service_name, deployment_name)
+        if delete_vhd:
+            path += '?comp=media'
         return self._perform_delete(
-            self._get_deployment_path_using_name(
-                service_name, deployment_name),
+                path,
             async=True)
 
     def swap_deployment(self, service_name, production, source_deployment):
@@ -526,9 +549,12 @@ class ServiceManagementService(_ServiceManagementClient):
         production environment. If it is running in the production
         environment, it will be swapped to staging.
 
-        service_name: Name of the hosted service.
-        production: The name of the production deployment.
-        source_deployment: The name of the source deployment.
+        service_name:
+            Name of the hosted service.
+        production:
+            The name of the production deployment.
+        source_deployment:
+            The name of the source deployment.
         '''
         _validate_not_none('service_name', service_name)
         _validate_not_none('production', production)
@@ -545,8 +571,10 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Initiates a change to the deployment configuration.
 
-        service_name: Name of the hosted service.
-        deployment_name: The name of the deployment.
+        service_name:
+            Name of the hosted service.
+        deployment_name:
+            The name of the deployment.
         configuration:
             The base-64 encoded service configuration file for the deployment.
         treat_warnings_as_error:
@@ -583,11 +611,14 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Initiates a change in deployment status.
 
-        service_name: Name of the hosted service.
-        deployment_name: The name of the deployment.
+        service_name:
+            Name of the hosted service.
+        deployment_name:
+            The name of the deployment.
         status:
             The change to initiate to the deployment status. Possible values
-            include: Running, Suspended
+            include:
+                Running, Suspended
         '''
         _validate_not_none('service_name', service_name)
         _validate_not_none('deployment_name', deployment_name)
@@ -605,8 +636,10 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Initiates an upgrade.
 
-        service_name: Name of the hosted service.
-        deployment_name: The name of the deployment.
+        service_name:
+            Name of the hosted service.
+        deployment_name:
+            The name of the deployment.
         mode:
             If set to Manual, WalkUpgradeDomain must be called to apply the
             update. If set to Auto, the Windows Azure platform will
@@ -629,7 +662,8 @@ class ServiceManagementService(_ServiceManagementClient):
             cause local data to be lost from some role instances. True if the
             rollback should proceed; otherwise false if the rollback should
             fail.
-        role_to_upgrade: The name of the specific role to upgrade.
+        role_to_upgrade:
+            The name of the specific role to upgrade.
         extended_properties:
             Dictionary containing name/value pairs of storage account
             properties. You can have a maximum of 50 extended property
@@ -664,8 +698,10 @@ class ServiceManagementService(_ServiceManagementClient):
         Specifies the next upgrade domain to be walked during manual in-place
         upgrade or configuration change.
 
-        service_name: Name of the hosted service.
-        deployment_name: The name of the deployment.
+        service_name:
+            Name of the hosted service.
+        deployment_name:
+            The name of the deployment.
         upgrade_domain:
             An integer value that identifies the upgrade domain to walk.
             Upgrade domains are identified with a zero-based index: the first
@@ -688,8 +724,10 @@ class ServiceManagementService(_ServiceManagementClient):
         returns the deployment to its state before the upgrade or
         configuration change was started.
 
-        service_name: Name of the hosted service.
-        deployment_name: The name of the deployment.
+        service_name:
+            Name of the hosted service.
+        deployment_name:
+            The name of the deployment.
         mode:
             Specifies whether the rollback should proceed automatically.
                 auto - The rollback proceeds without further user input.
@@ -717,9 +755,12 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Requests a reboot of a role instance that is running in a deployment.
 
-        service_name: Name of the hosted service.
-        deployment_name: The name of the deployment.
-        role_instance_name: The name of the role instance.
+        service_name:
+            Name of the hosted service.
+        deployment_name:
+            The name of the deployment.
+        role_instance_name:
+            The name of the role instance.
         '''
         _validate_not_none('service_name', service_name)
         _validate_not_none('deployment_name', deployment_name)
@@ -737,9 +778,12 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Requests a reimage of a role instance that is running in a deployment.
 
-        service_name: Name of the hosted service.
-        deployment_name: The name of the deployment.
-        role_instance_name: The name of the role instance.
+        service_name:
+            Name of the hosted service.
+        deployment_name:
+            The name of the deployment.
+        role_instance_name:
+            The name of the role instance.
         '''
         _validate_not_none('service_name', service_name)
         _validate_not_none('deployment_name', deployment_name)
@@ -760,9 +804,12 @@ class ServiceManagementService(_ServiceManagementClient):
         you do not want to initialize storage resources, you can use
         reimage_role_instance.
 
-        service_name: Name of the hosted service.
-        deployment_name: The name of the deployment.
-        role_instance_name: The name of the role instance.
+        service_name:
+            Name of the hosted service.
+        deployment_name:
+            The name of the deployment.
+        role_instance_name:
+            The name of the role instance.
         '''
         _validate_not_none('service_name', service_name)
         _validate_not_none('deployment_name', deployment_name)
@@ -783,9 +830,12 @@ class ServiceManagementService(_ServiceManagementClient):
         you do not want to initialize storage resources, you can use
         reimage_role_instance.
 
-        service_name: Name of the hosted service.
-        deployment_name: The name of the deployment.
-        role_instance_names: List of role instance names.
+        service_name:
+            Name of the hosted service.
+        deployment_name:
+            The name of the deployment.
+        role_instance_names:
+            List of role instance names.
         '''
         _validate_not_none('service_name', service_name)
         _validate_not_none('deployment_name', deployment_name)
@@ -801,7 +851,8 @@ class ServiceManagementService(_ServiceManagementClient):
         Checks to see if the specified hosted service name is available, or if
         it has already been taken.
 
-        service_name: Name of the hosted service.
+        service_name:
+            Name of the hosted service.
         '''
         _validate_not_none('service_name', service_name)
         return self._perform_get(
@@ -816,7 +867,8 @@ class ServiceManagementService(_ServiceManagementClient):
         Lists all of the service certificates associated with the specified
         hosted service.
 
-        service_name: Name of the hosted service.
+        service_name:
+            Name of the hosted service.
         '''
         _validate_not_none('service_name', service_name)
         return self._perform_get(
@@ -829,9 +881,12 @@ class ServiceManagementService(_ServiceManagementClient):
         Returns the public data for the specified X.509 certificate associated
         with a hosted service.
 
-        service_name: Name of the hosted service.
-        thumbalgorithm: The algorithm for the certificate's thumbprint.
-        thumbprint: The hexadecimal representation of the thumbprint.
+        service_name:
+            Name of the hosted service.
+        thumbalgorithm:
+            The algorithm for the certificate's thumbprint.
+        thumbprint:
+            The hexadecimal representation of the thumbprint.
         '''
         _validate_not_none('service_name', service_name)
         _validate_not_none('thumbalgorithm', thumbalgorithm)
@@ -847,11 +902,14 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Adds a certificate to a hosted service.
 
-        service_name: Name of the hosted service.
-        data: The base-64 encoded form of the pfx file.
+        service_name:
+            Name of the hosted service.
+        data:
+            The base-64 encoded form of the pfx file.
         certificate_format:
             The service certificate format. The only supported value is pfx.
-        password: The certificate password.
+        password:
+            The certificate password.
         '''
         _validate_not_none('service_name', service_name)
         _validate_not_none('data', data)
@@ -870,9 +928,12 @@ class ServiceManagementService(_ServiceManagementClient):
         Deletes a service certificate from the certificate store of a hosted
         service.
 
-        service_name: Name of the hosted service.
-        thumbalgorithm: The algorithm for the certificate's thumbprint.
-        thumbprint: The hexadecimal representation of the thumbprint.
+        service_name:
+            Name of the hosted service.
+        thumbalgorithm:
+            The algorithm for the certificate's thumbprint.
+        thumbprint:
+            The hexadecimal representation of the thumbprint.
         '''
         _validate_not_none('service_name', service_name)
         _validate_not_none('thumbalgorithm', thumbalgorithm)
@@ -903,7 +964,8 @@ class ServiceManagementService(_ServiceManagementClient):
         authenticate clients attempting to connect to resources associated
         with your Windows Azure subscription.
 
-        thumbprint: The thumbprint value of the certificate.
+        thumbprint:
+            The thumbprint value of the certificate.
         '''
         _validate_not_none('thumbprint', thumbprint)
         return self._perform_get(
@@ -923,7 +985,8 @@ class ServiceManagementService(_ServiceManagementClient):
         thumbprint:
             The thumb print that uniquely identifies the management
             certificate.
-        data: The certificate's raw data in base-64 encoded .cer format.
+        data:
+            The certificate's raw data in base-64 encoded .cer format.
         '''
         _validate_not_none('public_key', public_key)
         _validate_not_none('thumbprint', thumbprint)
@@ -963,7 +1026,8 @@ class ServiceManagementService(_ServiceManagementClient):
         Returns the system properties associated with the specified affinity
         group.
 
-        affinity_group_name: The name of the affinity group.
+        affinity_group_name:
+            The name of the affinity group.
         '''
         _validate_not_none('affinity_group_name', affinity_group_name)
         return self._perform_get(
@@ -975,7 +1039,8 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Creates a new affinity group for the specified subscription.
 
-        name: A name for the affinity group that is unique to the subscription.
+        name:
+            A name for the affinity group that is unique to the subscription.
         label:
             A name for the affinity group. The name can be up to 100 characters
             in length.
@@ -1002,7 +1067,8 @@ class ServiceManagementService(_ServiceManagementClient):
         Updates the label and/or the description for an affinity group for the
         specified subscription.
 
-        affinity_group_name: The name of the affinity group.
+        affinity_group_name:
+            The name of the affinity group.
         label:
             A name for the affinity group. The name can be up to 100 characters
             in length.
@@ -1021,7 +1087,8 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Deletes an affinity group in the specified subscription.
 
-        affinity_group_name: The name of the affinity group.
+        affinity_group_name:
+            The name of the affinity group.
         '''
         _validate_not_none('affinity_group_name', affinity_group_name)
         return self._perform_delete('/' + self.subscription_id + \
@@ -1037,19 +1104,6 @@ class ServiceManagementService(_ServiceManagementClient):
         return self._perform_get('/' + self.subscription_id + '/locations',
                                  Locations)
 
-    #--Operations for tracking asynchronous requests ---------------------
-    def get_operation_status(self, request_id):
-        '''
-        Returns the status of the specified operation. After calling an
-        asynchronous operation, you can call Get Operation Status to determine
-        whether the operation has succeeded, failed, or is still in progress.
-
-        request_id: The request ID for the request you wish to track.
-        '''
-        _validate_not_none('request_id', request_id)
-        return self._perform_get(
-            '/' + self.subscription_id + '/operations/' + _str(request_id),
-            Operation)
 
     #--Operations for retrieving operating system information ------------
     def list_operating_systems(self):
@@ -1079,6 +1133,32 @@ class ServiceManagementService(_ServiceManagementClient):
         return self._perform_get('/' + self.subscription_id + '',
                                  Subscription)
 
+    # Operations for retrieving subscription operations ------------------
+    def list_subscription_operations(self, start_time=None, end_time=None, object_id_filter=None,
+                                     operation_result_filter=None, continuation_token=None):
+        '''
+        List subscription operations.
+
+        start_time: Required. An ISO8601 date.
+        end_time: Required. An ISO8601 date.
+        object_id_filter: Optional. Returns subscription operations only for the specified object type and object ID
+        operation_result_filter: Optional. Returns subscription operations only for the specified result status, either Succeeded, Failed, or InProgress.
+        continuation_token: Optional.
+        More information at:
+        https://msdn.microsoft.com/en-us/library/azure/gg715318.aspx
+        '''
+        start_time = ('StartTime=' + start_time) if start_time else ''
+        end_time = ('EndTime=' + end_time) if end_time else ''
+        object_id_filter = ('ObjectIdFilter=' + object_id_filter) if object_id_filter else ''
+        operation_result_filter = ('OperationResultFilter=' + operation_result_filter) if operation_result_filter else ''
+        continuation_token = ('ContinuationToken=' + continuation_token) if continuation_token else ''
+
+        parameters = ('&'.join(v for v in (start_time, end_time, object_id_filter, operation_result_filter, continuation_token) if v))
+        parameters = '?' + parameters if parameters else ''
+
+        return self._perform_get(self._get_list_subscription_operations_path() + parameters,
+                                 SubscriptionOperationCollection)
+
     #--Operations for reserved ip addresses  -----------------------------
     def create_reserved_ip_address(self, name, label=None, location=None):
         '''
@@ -1106,7 +1186,8 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Deletes a reserved IP address from the specified subscription.
 
-        name: Required. Name of the reserved IP address.
+        name:
+            Required. Name of the reserved IP address.
         '''
         _validate_not_none('name', name)
         return self._perform_delete(self._get_reserved_ip_path(name),
@@ -1116,7 +1197,8 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Retrieves information about the specified reserved IP address.
 
-        name: Required. Name of the reserved IP address.
+        name:
+            Required. Name of the reserved IP address.
         '''
         _validate_not_none('name', name)
         return self._perform_get(self._get_reserved_ip_path(name), ReservedIP)
@@ -1133,9 +1215,12 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Retrieves the specified virtual machine.
 
-        service_name: The name of the service.
-        deployment_name: The name of the deployment.
-        role_name: The name of the role.
+        service_name:
+            The name of the service.
+        deployment_name:
+            The name of the deployment.
+        role_name:
+            The name of the role.
         '''
         _validate_not_none('service_name', service_name)
         _validate_not_none('deployment_name', deployment_name)
@@ -1162,7 +1247,8 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Provisions a virtual machine based on the supplied configuration.
 
-        service_name: Name of the hosted service.
+        service_name:
+            Name of the hosted service.
         deployment_name:
             The name for the deployment. The deployment name must be unique
             among other deployments for the hosted service.
@@ -1172,7 +1258,8 @@ class ServiceManagementService(_ServiceManagementClient):
         label:
             Specifies an identifier for the deployment. The label can be up to
             100 characters long. The label can be used for tracking purposes.
-        role_name: The name of the role.
+        role_name:
+            The name of the role.
         system_config:
             Contains the metadata required to provision a virtual machine from
             a Windows or Linux OS image.  Use an instance of
@@ -1275,9 +1362,12 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Adds a virtual machine to an existing deployment.
 
-        service_name: The name of the service.
-        deployment_name: The name of the deployment.
-        role_name: The name of the role.
+        service_name:
+            The name of the service.
+        deployment_name:
+            The name of the deployment.
+        role_name:
+            The name of the role.
         system_config:
             Contains the metadata required to provision a virtual machine from
             a Windows or Linux OS image.  Use an instance of
@@ -1356,9 +1446,12 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Updates the specified virtual machine.
 
-        service_name: The name of the service.
-        deployment_name: The name of the deployment.
-        role_name: The name of the role.
+        service_name:
+            The name of the service.
+        deployment_name:
+            The name of the deployment.
+        role_name:
+            The name of the role.
         os_virtual_hard_disk:
             Contains the parameters Windows Azure uses to create the operating
             system disk for the virtual machine.
@@ -1416,9 +1509,12 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Deletes the specified virtual machine.
 
-        service_name: The name of the service.
-        deployment_name: The name of the deployment.
-        role_name: The name of the role.
+        service_name:
+            The name of the service.
+        deployment_name:
+            The name of the deployment.
+        role_name:
+            The name of the role.
         '''
         _validate_not_none('service_name', service_name)
         _validate_not_none('deployment_name', deployment_name)
@@ -1435,9 +1531,12 @@ class ServiceManagementService(_ServiceManagementClient):
         image gallery. From the captured image, you can create additional
         customized virtual machines.
 
-        service_name: The name of the service.
-        deployment_name: The name of the deployment.
-        role_name: The name of the role.
+        service_name:
+            The name of the service.
+        deployment_name:
+            The name of the deployment.
+        role_name:
+            The name of the role.
         post_capture_action:
             Specifies the action after capture operation completes. Possible
             values are: Delete, Reprovision.
@@ -1468,9 +1567,12 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Starts the specified virtual machine.
 
-        service_name: The name of the service.
-        deployment_name: The name of the deployment.
-        role_name: The name of the role.
+        service_name:
+            The name of the service.
+        deployment_name:
+            The name of the deployment.
+        role_name:
+            The name of the role.
         '''
         _validate_not_none('service_name', service_name)
         _validate_not_none('deployment_name', deployment_name)
@@ -1485,9 +1587,12 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Starts the specified virtual machines.
 
-        service_name: The name of the service.
-        deployment_name: The name of the deployment.
-        role_names: The names of the roles, as an enumerable of strings.
+        service_name:
+            The name of the service.
+        deployment_name:
+            The name of the deployment.
+        role_names:
+            The names of the roles, as an enumerable of strings.
         '''
         _validate_not_none('service_name', service_name)
         _validate_not_none('deployment_name', deployment_name)
@@ -1501,9 +1606,12 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Restarts the specified virtual machine.
 
-        service_name: The name of the service.
-        deployment_name: The name of the deployment.
-        role_name: The name of the role.
+        service_name:
+            The name of the service.
+        deployment_name:
+            The name of the deployment.
+        role_name:
+            The name of the role.
         '''
         _validate_not_none('service_name', service_name)
         _validate_not_none('deployment_name', deployment_name)
@@ -1520,9 +1628,12 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Shuts down the specified virtual machine.
 
-        service_name: The name of the service.
-        deployment_name: The name of the deployment.
-        role_name: The name of the role.
+        service_name:
+            The name of the service.
+        deployment_name:
+            The name of the deployment.
+        role_name:
+            The name of the role.
         post_shutdown_action:
             Specifies how the Virtual Machine should be shut down. Values are:
                 Stopped
@@ -1550,9 +1661,12 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Shuts down the specified virtual machines.
 
-        service_name: The name of the service.
-        deployment_name: The name of the deployment.
-        role_names: The names of the roles, as an enumerable of strings.
+        service_name:
+            The name of the service.
+        deployment_name:
+            The name of the deployment.
+        role_names:
+            The names of the roles, as an enumerable of strings.
         post_shutdown_action:
             Specifies how the Virtual Machine should be shut down. Values are:
                 Stopped
@@ -1579,10 +1693,14 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Adds a DNS server definition to an existing deployment.
 
-        service_name: The name of the service.
-        deployment_name: The name of the deployment.
-        dns_server_name: Specifies the name of the DNS server.
-        address: Specifies the IP address of the DNS server.
+        service_name:
+            The name of the service.
+        deployment_name:
+            The name of the deployment.
+        dns_server_name:
+            Specifies the name of the DNS server.
+        address:
+            Specifies the IP address of the DNS server.
         '''
         _validate_not_none('service_name', service_name)
         _validate_not_none('deployment_name', deployment_name)
@@ -1597,10 +1715,14 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Updates the ip address of a DNS server.
 
-        service_name: The name of the service.
-        deployment_name: The name of the deployment.
-        dns_server_name: Specifies the name of the DNS server.
-        address: Specifies the IP address of the DNS server.
+        service_name:
+            The name of the service.
+        deployment_name:
+            The name of the deployment.
+        dns_server_name:
+            Specifies the name of the DNS server.
+        address:
+            Specifies the IP address of the DNS server.
         '''
         _validate_not_none('service_name', service_name)
         _validate_not_none('deployment_name', deployment_name)
@@ -1617,9 +1739,12 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Deletes a DNS server from a deployment.
 
-        service_name: The name of the service.
-        deployment_name: The name of the deployment.
-        dns_server_name: Name of the DNS server that you want to delete.
+        service_name:
+            The name of the service.
+        deployment_name:
+            The name of the deployment.
+        dns_server_name:
+            Name of the DNS server that you want to delete.
         '''
         _validate_not_none('service_name', service_name)
         _validate_not_none('deployment_name', deployment_name)
@@ -1643,8 +1768,10 @@ class ServiceManagementService(_ServiceManagementClient):
         Lists the versions of a resource extension that are available to add
         to a Virtual Machine.
 
-        publisher_name: Name of the resource extension publisher.
-        extension_name: Name of the resource extension.
+        publisher_name:
+            Name of the resource extension publisher.
+        extension_name:
+            Name of the resource extension.
         '''
         return self._perform_get(self._get_resource_extension_versions_path(
                                     publisher_name, extension_name),
@@ -1659,10 +1786,14 @@ class ServiceManagementService(_ServiceManagementClient):
         registers the copies as a VM Image in the image repository that is
         associated with the specified subscription.
 
-        service_name: The name of the service.
-        deployment_name: The name of the deployment.
-        role_name: The name of the role.
-        options: An instance of CaptureRoleAsVMImage class.
+        service_name:
+            The name of the service.
+        deployment_name:
+            The name of the deployment.
+        role_name:
+            The name of the role.
+        options:
+            An instance of CaptureRoleAsVMImage class.
         options.os_state:
             Required. Specifies the state of the operating system in the image.
             Possible values are: Generalized, Specialized 
@@ -1675,7 +1806,7 @@ class ServiceManagementService(_ServiceManagementClient):
             down before capturing an image.
         options.vm_image_name:
             Required. Specifies the name of the VM Image.
-        options.vm_image_name:
+        options.vm_image_label:
             Required. Specifies the label of the VM Image.
         options.description:
             Optional. Specifies the description of the VM Image.
@@ -1704,7 +1835,8 @@ class ServiceManagementService(_ServiceManagementClient):
         Creates a VM Image in the image repository that is associated with the
         specified subscription using a specified set of virtual hard disks.
 
-        vm_image: An instance of VMImage class.
+        vm_image:
+            An instance of VMImage class.
         vm_image.name: Required. Specifies the name of the image.
         vm_image.label: Required. Specifies an identifier for the image.
         vm_image.description: Optional. Specifies the description of the image.
@@ -1790,8 +1922,10 @@ class ServiceManagementService(_ServiceManagementClient):
         Deletes the specified VM Image from the image repository that is
         associated with the specified subscription.
 
-        vm_image_name: The name of the image.
-        delete_vhd: Deletes the underlying vhd blob in Azure storage.
+        vm_image_name:
+            The name of the image.
+        delete_vhd:
+            Deletes the underlying vhd blob in Azure storage.
         '''
         _validate_not_none('vm_image_name', vm_image_name)
         path = self._get_vm_image_path(vm_image_name)
@@ -1821,8 +1955,10 @@ class ServiceManagementService(_ServiceManagementClient):
         Updates a VM Image in the image repository that is associated with the
         specified subscription.
 
-        vm_image_name: Name of image to update.
-        vm_image: An instance of VMImage class.
+        vm_image_name:
+            Name of image to update.
+        vm_image:
+            An instance of VMImage class.
         vm_image.label: Optional. Specifies an identifier for the image.
         vm_image.os_disk_configuration:
             Required. Specifies configuration information for the operating 
@@ -1895,7 +2031,8 @@ class ServiceManagementService(_ServiceManagementClient):
         Adds an OS image that is currently stored in a storage account in your
         subscription to the image repository.
 
-        label: Specifies the friendly name of the image.
+        label:
+            Specifies the friendly name of the image.
         media_link:
             Specifies the location of the blob in Windows Azure blob store
             where the media for the image is located. The blob location must
@@ -1922,7 +2059,8 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Updates an OS image that in your image repository.
 
-        image_name: The name of the image to update.
+        image_name:
+            The name of the image to update.
         label:
             Specifies the friendly name of the image to be updated. You cannot
             use this operation to update images provided by the Windows Azure
@@ -1954,8 +2092,10 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Deletes the specified OS image from your image repository.
 
-        image_name: The name of the image.
-        delete_vhd: Deletes the underlying vhd blob in Azure storage.
+        image_name:
+            The name of the image.
+        delete_vhd:
+            Deletes the underlying vhd blob in Azure storage.
         '''
         _validate_not_none('image_name', image_name)
         path = self._get_image_path(image_name)
@@ -1968,10 +2108,14 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Retrieves the specified data disk from a virtual machine.
 
-        service_name: The name of the service.
-        deployment_name: The name of the deployment.
-        role_name: The name of the role.
-        lun: The Logical Unit Number (LUN) for the disk.
+        service_name:
+            The name of the service.
+        deployment_name:
+            The name of the deployment.
+        role_name:
+            The name of the role.
+        lun:
+            The Logical Unit Number (LUN) for the disk.
         '''
         _validate_not_none('service_name', service_name)
         _validate_not_none('deployment_name', deployment_name)
@@ -1989,9 +2133,12 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Adds a data disk to a virtual machine.
 
-        service_name: The name of the service.
-        deployment_name: The name of the deployment.
-        role_name: The name of the role.
+        service_name:
+            The name of the service.
+        deployment_name:
+            The name of the deployment.
+        role_name:
+            The name of the role.
         lun:
             Specifies the Logical Unit Number (LUN) for the disk. The LUN
             specifies the slot in which the data drive appears when mounted
@@ -2049,9 +2196,12 @@ class ServiceManagementService(_ServiceManagementClient):
         Updates the specified data disk attached to the specified virtual
         machine.
 
-        service_name: The name of the service.
-        deployment_name: The name of the deployment.
-        role_name: The name of the role.
+        service_name:
+            The name of the service.
+        deployment_name:
+            The name of the deployment.
+        role_name:
+            The name of the role.
         lun:
             Specifies the Logical Unit Number (LUN) for the disk. The LUN
             specifies the slot in which the data drive appears when mounted
@@ -2108,11 +2258,16 @@ class ServiceManagementService(_ServiceManagementClient):
         '''
         Removes the specified data disk from a virtual machine.
 
-        service_name: The name of the service.
-        deployment_name: The name of the deployment.
-        role_name: The name of the role.
-        lun: The Logical Unit Number (LUN) for the disk.
-        delete_vhd: Deletes the underlying vhd blob in Azure storage.
+        service_name:
+            The name of the service.
+        deployment_name:
+            The name of the deployment.
+        role_name:
+            The name of the role.
+        lun:
+            The Logical Unit Number (LUN) for the disk.
+        delete_vhd:
+            Deletes the underlying vhd blob in Azure storage.
         '''
         _validate_not_none('service_name', service_name)
         _validate_not_none('deployment_name', deployment_name)
@@ -2144,9 +2299,9 @@ class ServiceManagementService(_ServiceManagementClient):
         or a data disk.
 
         has_operating_system:
-            Specifies whether the disk contains an operation system. Only a
-            disk with an operating system installed can be mounted as OS Drive.
-        label: Specifies the description of the disk.
+            Deprecated.
+        label:
+            Specifies the description of the disk.
         media_link:
             Specifies the location of the blob in Windows Azure blob store
             where the media for the disk is located. The blob location must
@@ -2156,63 +2311,56 @@ class ServiceManagementService(_ServiceManagementClient):
         name:
             Specifies a name for the disk. Windows Azure uses the name to
             identify the disk when creating virtual machines from the disk.
-        os: The OS type of the disk. Possible values are: Linux, Windows
+        os:
+            The OS type of the disk. Possible values are: Linux, Windows
         '''
-        _validate_not_none('has_operating_system', has_operating_system)
         _validate_not_none('label', label)
         _validate_not_none('media_link', media_link)
         _validate_not_none('name', name)
         _validate_not_none('os', os)
         return self._perform_post(self._get_disk_path(),
                                   _XmlSerializer.disk_to_xml(
-                                      has_operating_system,
                                       label,
                                       media_link,
                                       name,
                                       os))
 
-    def update_disk(self, disk_name, has_operating_system, label, media_link,
-                    name, os):
+    def update_disk(self, disk_name, has_operating_system=None, label=None, media_link=None,
+                    name=None, os=None):
         '''
         Updates an existing disk in your image repository.
 
-        disk_name: The name of the disk to update.
+        disk_name:
+            The name of the disk to update.
         has_operating_system:
-            Specifies whether the disk contains an operation system. Only a
-            disk with an operating system installed can be mounted as OS Drive.
-        label: Specifies the description of the disk.
+            Deprecated.
+        label:
+            Specifies the description of the disk.
         media_link:
-            Specifies the location of the blob in Windows Azure blob store
-            where the media for the disk is located. The blob location must
-            belong to the storage account in the current subscription specified
-            by the <subscription-id> value in the operation call. Example:
-            http://example.blob.core.windows.net/disks/mydisk.vhd
+            Deprecated.
         name:
-            Specifies a name for the disk. Windows Azure uses the name to
-            identify the disk when creating virtual machines from the disk.
-        os: The OS type of the disk. Possible values are: Linux, Windows
+            Deprecated.
+        os:
+            Deprecated.
         '''
         _validate_not_none('disk_name', disk_name)
-        _validate_not_none('has_operating_system', has_operating_system)
         _validate_not_none('label', label)
-        _validate_not_none('media_link', media_link)
-        _validate_not_none('name', name)
-        _validate_not_none('os', os)
         return self._perform_put(self._get_disk_path(disk_name),
                                  _XmlSerializer.disk_to_xml(
-                                     has_operating_system,
                                      label,
-                                     media_link,
-                                     name,
-                                     os))
+                                     None,
+                                     None,
+                                     None))
 
     def delete_disk(self, disk_name, delete_vhd=False):
         '''
         Deletes the specified data or operating system disk from your image
         repository.
 
-        disk_name: The name of the disk to delete.
-        delete_vhd: Deletes the underlying vhd blob in Azure storage.
+        disk_name:
+            The name of the disk to delete.
+        delete_vhd:
+            Deletes the underlying vhd blob in Azure storage.
         '''
         _validate_not_none('disk_name', disk_name)
         path = self._get_disk_path(disk_name)
@@ -2233,6 +2381,9 @@ class ServiceManagementService(_ServiceManagementClient):
 
     def _get_subscriptions_path(self):
         return '/subscriptions'
+
+    def _get_list_subscription_operations_path(self):
+        return self._get_path('operations', None)
 
     def _get_virtual_network_site_path(self):
         return self._get_path('services/networking/virtualnetwork', None)

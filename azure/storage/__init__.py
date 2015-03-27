@@ -13,32 +13,34 @@
 # limitations under the License.
 #--------------------------------------------------------------------------
 import sys
+import threading
 import types
 
 from datetime import datetime
 from dateutil import parser
 from dateutil.tz import tzutc
-from xml.dom import minidom
+from time import sleep
 from azure import (WindowsAzureData,
                    WindowsAzureError,
                    METADATA_NS,
+                   url_quote,
                    xml_escape,
                    _create_entry,
                    _decode_base64_to_text,
                    _decode_base64_to_bytes,
                    _encode_base64,
-                   _fill_data_minidom,
-                   _fill_instance_element,
-                   _get_child_nodes,
-                   _get_child_nodesNS,
-                   _get_children_from_path,
-                   _get_entry_properties,
                    _general_error_handler,
                    _list_of,
                    _parse_response_for_dict,
                    _sign_string,
                    _unicode_type,
                    _ERROR_CANNOT_SERIALIZE_VALUE_TO_ENTITY,
+                   _etree_entity_feed_namespaces,
+                   _make_etree_ns_attr_name,
+                   _get_etree_tag_name_without_ns,
+                   _get_etree_text,
+                   ETree,
+                   _ETreeXmlToObject,
                    )
 
 # x-ms-version for storage service.
@@ -125,9 +127,20 @@ class Logging(WindowsAzureData):
         self.retention_policy = RetentionPolicy()
 
 
-class Metrics(WindowsAzureData):
+class HourMetrics(WindowsAzureData):
 
-    ''' Metrics class in service properties. '''
+    ''' Hour Metrics class in service properties. '''
+
+    def __init__(self):
+        self.version = u'1.0'
+        self.enabled = False
+        self.include_apis = None
+        self.retention_policy = RetentionPolicy()
+
+
+class MinuteMetrics(WindowsAzureData):
+
+    ''' Minute Metrics class in service properties. '''
 
     def __init__(self):
         self.version = u'1.0'
@@ -142,7 +155,15 @@ class StorageServiceProperties(WindowsAzureData):
 
     def __init__(self):
         self.logging = Logging()
-        self.metrics = Metrics()
+        self.hour_metrics = HourMetrics()
+        self.minute_metrics = MinuteMetrics()
+
+    @property
+    def metrics(self):
+        import warnings
+        warnings.warn(
+            'The metrics attribute has been deprecated. Use hour_metrics and minute_metrics instead.')
+        return self.hour_metrics
 
 
 class AccessPolicy(WindowsAzureData):
@@ -382,24 +403,21 @@ class Table(WindowsAzureData):
 def _parse_blob_enum_results_list(response):
     respbody = response.body
     return_obj = BlobEnumResults()
-    doc = minidom.parseString(respbody)
+    enum_results = ETree.fromstring(respbody)
 
-    for enum_results in _get_child_nodes(doc, 'EnumerationResults'):
-        for child in _get_children_from_path(enum_results, 'Blobs', 'Blob'):
-            return_obj.blobs.append(_fill_instance_element(child, Blob))
+    for child in enum_results.findall('./Blobs/Blob'):
+        return_obj.blobs.append(_ETreeXmlToObject.fill_instance_element(child, Blob))
 
-        for child in _get_children_from_path(enum_results,
-                                             'Blobs',
-                                             'BlobPrefix'):
-            return_obj.prefixes.append(
-                _fill_instance_element(child, BlobPrefix))
+    for child in enum_results.findall('./Blobs/BlobPrefix'):
+        return_obj.prefixes.append(
+            _ETreeXmlToObject.fill_instance_element(child, BlobPrefix))
 
-        for name, value in vars(return_obj).items():
-            if name == 'blobs' or name == 'prefixes':
-                continue
-            value = _fill_data_minidom(enum_results, name, value)
-            if value is not None:
-                setattr(return_obj, name, value)
+    for name, value in vars(return_obj).items():
+        if name == 'blobs' or name == 'prefixes':
+            continue
+        value = _ETreeXmlToObject.fill_data_member(enum_results, name, value)
+        if value is not None:
+            setattr(return_obj, name, value)
 
     return return_obj
 
@@ -712,7 +730,8 @@ def _convert_table_to_xml(table_name):
     the same as entity and the only difference is that table has only one
     property 'TableName', so we just call _convert_entity_to_xml.
 
-    table_name: the name of the table
+    table_name:
+        the name of the table
     '''
     return _convert_entity_to_xml({'TableName': table_name})
 
@@ -739,36 +758,30 @@ def _create_blob_result(response):
     return BlobResult(response.body, blob_properties)
 
 
+def _convert_block_etree_element_to_blob_block(block_element):
+    block_id = _decode_base64_to_text(block_element.findtext('./Name', ''))
+    block_size = int(block_element.findtext('./Size'))
+
+    return BlobBlock(block_id, block_size)
+
+
 def _convert_response_to_block_list(response):
     '''
     Converts xml response to block list class.
     '''
-    blob_block_list = BlobBlockList()
+    block_list = BlobBlockList()
 
-    xmldoc = minidom.parseString(response.body)
-    for xml_block in _get_children_from_path(xmldoc,
-                                             'BlockList',
-                                             'CommittedBlocks',
-                                             'Block'):
-        xml_block_id = _decode_base64_to_text(
-            _get_child_nodes(xml_block, 'Name')[0].firstChild.nodeValue)
-        xml_block_size = int(
-            _get_child_nodes(xml_block, 'Size')[0].firstChild.nodeValue)
-        blob_block_list.committed_blocks.append(
-            BlobBlock(xml_block_id, xml_block_size))
+    list_element = ETree.fromstring(response.body)
 
-    for xml_block in _get_children_from_path(xmldoc,
-                                             'BlockList',
-                                             'UncommittedBlocks',
-                                             'Block'):
-        xml_block_id = _decode_base64_to_text(
-            _get_child_nodes(xml_block, 'Name')[0].firstChild.nodeValue)
-        xml_block_size = int(
-            _get_child_nodes(xml_block, 'Size')[0].firstChild.nodeValue)
-        blob_block_list.uncommitted_blocks.append(
-            BlobBlock(xml_block_id, xml_block_size))
+    for block_element in list_element.findall('./CommittedBlocks/Block'):
+        block = _convert_block_etree_element_to_blob_block(block_element)
+        block_list.committed_blocks.append(block)
 
-    return blob_block_list
+    for block_element in list_element.findall('./UncommittedBlocks/Block'):
+        block = _convert_block_etree_element_to_blob_block(block_element)
+        block_list.uncommitted_blocks.append(block)
+
+    return block_list
 
 
 def _remove_prefix(name):
@@ -781,10 +794,13 @@ def _remove_prefix(name):
 def _convert_response_to_entity(response):
     if response is None:
         return response
-    return _convert_xml_to_entity(response.body)
+
+    root = ETree.fromstring(response.body)
+
+    return _convert_etree_element_to_entity(root)
 
 
-def _convert_xml_to_entity(xmlstr):
+def _convert_etree_element_to_entity(entry_element):
     ''' Convert xml response to entity.
 
     The format of entity:
@@ -812,51 +828,38 @@ def _convert_xml_to_entity(xmlstr):
       </content>
     </entry>
     '''
-    xmldoc = minidom.parseString(xmlstr)
-
-    xml_properties = None
-    for entry in _get_child_nodes(xmldoc, 'entry'):
-        for content in _get_child_nodes(entry, 'content'):
-            # TODO: Namespace
-            xml_properties = _get_child_nodesNS(
-                content, METADATA_NS, 'properties')
-
-    if not xml_properties:
-        return None
-
     entity = Entity()
-    # extract each property node and get the type from attribute and node value
-    for xml_property in xml_properties[0].childNodes:
-        name = _remove_prefix(xml_property.nodeName)
 
-        if xml_property.firstChild:
-            value = xml_property.firstChild.nodeValue
-        else:
-            value = ''
+    properties = entry_element.findall('./atom:content/m:properties', _etree_entity_feed_namespaces)
+    for prop in properties:
+        for p in prop:
+            name = _get_etree_tag_name_without_ns(p.tag)
+            value = p.text or ''
+            mtype = p.attrib.get(_make_etree_ns_attr_name(_etree_entity_feed_namespaces['m'], 'type'), None)
+            isnull = p.attrib.get(_make_etree_ns_attr_name(_etree_entity_feed_namespaces['m'], 'null'), None)
 
-        isnull = xml_property.getAttributeNS(METADATA_NS, 'null')
-        mtype = xml_property.getAttributeNS(METADATA_NS, 'type')
+            # if not isnull and no type info, then it is a string and we just
+            # need the str type to hold the property.
+            if not isnull and not mtype:
+                _set_entity_attr(entity, name, value)
+            elif isnull == 'true':
+                if mtype:
+                    property = EntityProperty(mtype, None)
+                else:
+                    property = EntityProperty('Edm.String', None)
+            else:  # need an object to hold the property
+                conv = _ENTITY_TO_PYTHON_CONVERSIONS.get(mtype)
+                if conv is not None:
+                    property = conv(value)
+                else:
+                    property = EntityProperty(mtype, value)
+                _set_entity_attr(entity, name, property)
 
-        # if not isnull and no type info, then it is a string and we just
-        # need the str type to hold the property.
-        if not isnull and not mtype:
-            _set_entity_attr(entity, name, value)
-        elif isnull == 'true':
-            if mtype:
-                property = EntityProperty(mtype, None)
-            else:
-                property = EntityProperty('Edm.String', None)
-        else:  # need an object to hold the property
-            conv = _ENTITY_TO_PYTHON_CONVERSIONS.get(mtype)
-            if conv is not None:
-                property = conv(value)
-            else:
-                property = EntityProperty(mtype, value)
-            _set_entity_attr(entity, name, property)
 
-        # extract id, updated and name value from feed entry and set them of
-        # rule.
-    for name, value in _get_entry_properties(xmlstr, True).items():
+    # extract id, updated and name value from feed entry and set them of
+    # rule.
+    for name, value in _ETreeXmlToObject.get_entry_properties_from_element(
+        entry_element, True).items():
         if name in ['etag']:
             _set_entity_attr(entity, name, value)
 
@@ -872,17 +875,252 @@ def _set_entity_attr(entity, name, value):
         entity.__dict__[name] = value
 
 
-def _convert_xml_to_table(xmlstr):
-    ''' Converts the xml response to table class.
-    Simply call convert_xml_to_entity and extract the table name, and add
-    updated and author info
+def _convert_etree_element_to_table(entry_element):
+    ''' Converts the xml element to table class.
     '''
     table = Table()
-    entity = _convert_xml_to_entity(xmlstr)
-    setattr(table, 'name', entity.TableName)
-    for name, value in _get_entry_properties(xmlstr, False).items():
-        setattr(table, name, value)
+    name_element = entry_element.find('./atom:content/m:properties/d:TableName', _etree_entity_feed_namespaces)
+    if name_element is not None:
+        table.name = name_element.text
+
+    for name_element, value in _ETreeXmlToObject.get_entry_properties_from_element(
+        entry_element, False).items():
+        setattr(table, name_element, value)
+
     return table
+
+
+class _BlobChunkDownloader(object):
+    def __init__(self, blob_service, container_name, blob_name, blob_size,
+                 chunk_size, stream, parallel, max_retries, retry_wait,
+                 progress_callback):
+        self.blob_service = blob_service
+        self.container_name = container_name
+        self.blob_name = blob_name
+        self.blob_size = blob_size
+        self.chunk_size = chunk_size
+        self.stream = stream
+        self.stream_start = stream.tell()
+        self.stream_lock = threading.Lock() if parallel else None
+        self.progress_callback = progress_callback
+        self.progress_total = 0
+        self.progress_lock = threading.Lock() if parallel else None
+        self.max_retries = max_retries
+        self.retry_wait = retry_wait
+
+    def get_chunk_offsets(self):
+        index = 0
+        while index < self.blob_size:
+            yield index
+            index += self.chunk_size
+
+    def process_chunk(self, chunk_offset):
+        chunk_data = self._download_chunk_with_retries(chunk_offset)
+        length = len(chunk_data)
+        if length > 0:
+            self._write_to_stream(chunk_data, chunk_offset)
+            self._update_progress(length)
+
+    def _update_progress(self, length):
+        if self.progress_callback is not None:
+            if self.progress_lock is not None:
+                with self.progress_lock:
+                    self.progress_total += length
+                    total = self.progress_total
+            else:
+                self.progress_total += length
+                total = self.progress_total
+            self.progress_callback(total, self.blob_size)
+
+    def _write_to_stream(self, chunk_data, chunk_offset):
+        if self.stream_lock is not None:
+            with self.stream_lock:
+                self.stream.seek(self.stream_start + chunk_offset)
+                self.stream.write(chunk_data)
+        else:
+            self.stream.seek(self.stream_start + chunk_offset)
+            self.stream.write(chunk_data)
+
+    def _download_chunk_with_retries(self, chunk_offset):
+        range_id = 'bytes={0}-{1}'.format(chunk_offset, chunk_offset + self.chunk_size - 1)
+        retries = self.max_retries
+        while True:
+            try:
+                return self.blob_service.get_blob(
+                    self.container_name,
+                    self.blob_name,
+                    x_ms_range=range_id
+                )
+            except Exception:
+                if retries > 0:
+                    retries -= 1
+                    sleep(self.retry_wait)
+                else:
+                    raise
+
+
+class _BlobChunkUploader(object):
+    def __init__(self, blob_service, container_name, blob_name, blob_size,
+                 chunk_size, stream, parallel, max_retries, retry_wait,
+                 progress_callback, x_ms_lease_id):
+        self.blob_service = blob_service
+        self.container_name = container_name
+        self.blob_name = blob_name
+        self.blob_size = blob_size
+        self.chunk_size = chunk_size
+        self.stream = stream
+        self.stream_start = stream.tell()
+        self.stream_lock = threading.Lock() if parallel else None
+        self.progress_callback = progress_callback
+        self.progress_total = 0
+        self.progress_lock = threading.Lock() if parallel else None
+        self.max_retries = max_retries
+        self.retry_wait = retry_wait
+        self.x_ms_lease_id = x_ms_lease_id
+
+    def get_chunk_offsets(self):
+        index = 0
+        if self.blob_size is None:
+            # we don't know the size of the stream, so we have no
+            # choice but to seek
+            while True:
+                data = self._read_from_stream(index, 1)
+                if not data:
+                    break
+                yield index
+                index += self.chunk_size
+        else:
+            while index < self.blob_size:
+                yield index
+                index += self.chunk_size
+
+    def process_chunk(self, chunk_offset):
+        size = self.chunk_size
+        if self.blob_size is not None:
+            size = min(size, self.blob_size - chunk_offset)
+        chunk_data = self._read_from_stream(chunk_offset, size)
+        return self._upload_chunk_with_retries(chunk_offset, chunk_data)
+
+    def _read_from_stream(self, offset, count):
+        if self.stream_lock is not None:
+            with self.stream_lock:
+                self.stream.seek(self.stream_start + offset)
+                data = self.stream.read(count)
+        else:
+            self.stream.seek(self.stream_start + offset)
+            data = self.stream.read(count)
+        return data
+
+    def _update_progress(self, length):
+        if self.progress_callback is not None:
+            if self.progress_lock is not None:
+                with self.progress_lock:
+                    self.progress_total += length
+                    total = self.progress_total
+            else:
+                self.progress_total += length
+                total = self.progress_total
+            self.progress_callback(total, self.blob_size)
+
+    def _upload_chunk_with_retries(self, chunk_offset, chunk_data):
+        retries = self.max_retries
+        while True:
+            try:
+                range_id = self._upload_chunk(chunk_offset, chunk_data) 
+                self._update_progress(len(chunk_data))
+                return range_id
+            except Exception:
+                if retries > 0:
+                    retries -= 1
+                    sleep(self.retry_wait)
+                else:
+                    raise
+
+
+class _BlockBlobChunkUploader(_BlobChunkUploader):
+    def _upload_chunk(self, chunk_offset, chunk_data):
+        range_id = url_quote(_encode_base64('{0:032d}'.format(chunk_offset)))
+        self.blob_service.put_block(
+            self.container_name,
+            self.blob_name,
+            chunk_data,
+            range_id,
+            x_ms_lease_id=self.x_ms_lease_id
+        )
+        return range_id
+
+
+class _PageBlobChunkUploader(_BlobChunkUploader):
+    def _upload_chunk(self, chunk_offset, chunk_data):
+        range_id = 'bytes={0}-{1}'.format(chunk_offset, chunk_offset + len(chunk_data) - 1)
+        self.blob_service.put_page(
+            self.container_name,
+            self.blob_name,
+            chunk_data,
+            range_id,
+            'update',
+            x_ms_lease_id=self.x_ms_lease_id
+        )
+        return range_id
+
+
+def _download_blob_chunks(blob_service, container_name, blob_name,
+                          blob_size, block_size, stream, max_connections,
+                          max_retries, retry_wait, progress_callback):
+    downloader = _BlobChunkDownloader(
+        blob_service,
+        container_name,
+        blob_name,
+        blob_size,
+        block_size,
+        stream,
+        max_connections > 1,
+        max_retries,
+        retry_wait,
+        progress_callback,
+    )
+
+    if progress_callback is not None:
+        progress_callback(0, blob_size)
+
+    if max_connections > 1:
+        import concurrent.futures
+        executor = concurrent.futures.ThreadPoolExecutor(max_connections)
+        result = list(executor.map(downloader.process_chunk, downloader.get_chunk_offsets()))
+    else:
+        for range_start in downloader.get_chunk_offsets():
+            downloader.process_chunk(range_start)
+
+
+def _upload_blob_chunks(blob_service, container_name, blob_name,
+                        blob_size, block_size, stream, max_connections,
+                        max_retries, retry_wait, progress_callback,
+                        x_ms_lease_id, uploader_class):
+    uploader = uploader_class(
+        blob_service,
+        container_name,
+        blob_name,
+        blob_size,
+        block_size,
+        stream,
+        max_connections > 1,
+        max_retries,
+        retry_wait,
+        progress_callback,
+        x_ms_lease_id,
+    )
+
+    if progress_callback is not None:
+        progress_callback(0, blob_size)
+
+    if max_connections > 1:
+        import concurrent.futures
+        executor = concurrent.futures.ThreadPoolExecutor(max_connections)
+        range_ids = list(executor.map(uploader.process_chunk, uploader.get_chunk_offsets()))
+    else:
+        range_ids = [uploader.process_chunk(start) for start in uploader.get_chunk_offsets()]
+
+    return range_ids
 
 
 def _storage_error_handler(http_error):

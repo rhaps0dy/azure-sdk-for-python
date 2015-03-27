@@ -13,6 +13,7 @@
 # limitations under the License.
 #--------------------------------------------------------------------------
 from azure import (
+    DEFAULT_HTTP_TIMEOUT,
     MANAGEMENT_HOST,
     _str,
     )
@@ -37,17 +38,20 @@ class WebsiteManagementService(_ServiceManagementClient):
     '''
 
     def __init__(self, subscription_id=None, cert_file=None,
-                 host=MANAGEMENT_HOST, request_session=None):
+                 host=MANAGEMENT_HOST, request_session=None,
+                 timeout=DEFAULT_HTTP_TIMEOUT):
         '''
         Initializes the website management service.
 
-        subscription_id: Subscription to manage.
+        subscription_id:
+            Subscription to manage.
         cert_file:
             Path to .pem certificate file (httplib), or location of the
             certificate in your Personal certificate store (winhttp) in the
             CURRENT_USER\my\CertificateName format.
             If a request_session is specified, then this is unused.
-        host: Live ServiceClient URL. Defaults to Azure public cloud.
+        host:
+            Live ServiceClient URL. Defaults to Azure public cloud.
         request_session:
             Session object to use for http requests. If this is specified, it
             replaces the default use of httplib or winhttp. Also, the cert_file
@@ -58,9 +62,11 @@ class WebsiteManagementService(_ServiceManagementClient):
             library. To use .pem certificate authentication with requests
             library, set the path to the .pem file on the session.cert
             attribute.
+        timeout:
+            Optional. Timeout for the http request, in seconds.
         '''
         super(WebsiteManagementService, self).__init__(
-            subscription_id, cert_file, host, request_session)
+            subscription_id, cert_file, host, request_session, timeout)
 
     #--Operations for web sites ----------------------------------------
     def list_webspaces(self):
@@ -74,7 +80,8 @@ class WebsiteManagementService(_ServiceManagementClient):
         '''
         Get details of a specific webspace.
 
-        webspace_name: The name of the webspace.
+        webspace_name:
+            The name of the webspace.
         '''
         return self._perform_get(self._get_webspace_details_path(webspace_name),
                                  WebSpace)
@@ -83,7 +90,8 @@ class WebsiteManagementService(_ServiceManagementClient):
         '''
         List the web sites defined on this webspace.
 
-        webspace_name: The name of the webspace.
+        webspace_name:
+            The name of the webspace.
         '''
         return self._perform_get(self._get_sites_path(webspace_name),
                                  Sites)
@@ -92,8 +100,10 @@ class WebsiteManagementService(_ServiceManagementClient):
         '''
         List the web sites defined on this webspace.
 
-        webspace_name: The name of the webspace.
-        website_name: The name of the website.
+        webspace_name:
+            The name of the webspace.
+        website_name:
+            The name of the website.
         '''
         return self._perform_get(self._get_sites_details_path(webspace_name,
                                                               website_name),
@@ -105,8 +115,10 @@ class WebsiteManagementService(_ServiceManagementClient):
         '''
         Create a website.
 
-        webspace_name: The name of the webspace.
-        website_name: The name of the website.
+        webspace_name:
+            The name of the webspace.
+        website_name:
+            The name of the website.
         geo_region:
             The geographical region of the webspace that will be created.
         host_names:
@@ -141,8 +153,10 @@ class WebsiteManagementService(_ServiceManagementClient):
         '''
         Delete a website.
 
-        webspace_name: The name of the webspace.
-        website_name: The name of the website.
+        webspace_name:
+            The name of the webspace.
+        website_name:
+            The name of the website.
         delete_empty_server_farm:
             If the site being deleted is the last web site in a server farm,
             you can delete the server farm by setting this to True.
@@ -164,24 +178,32 @@ class WebsiteManagementService(_ServiceManagementClient):
         '''
         Restart a web site.
 
-        webspace_name: The name of the webspace.
-        website_name: The name of the website.
+        webspace_name:
+            The name of the webspace.
+        website_name:
+            The name of the website.
         '''
         return self._perform_post(
             self._get_restart_path(webspace_name, website_name),
-            '')
+            None, async=True)
 
     def get_historical_usage_metrics(self, webspace_name, website_name,
                                      metrics = None, start_time=None, end_time=None, time_grain=None):
         '''
         Get historical usage metrics.
 
-        webspace_name: The name of the webspace.
-        website_name: The name of the website.
-        metrics: Optional. List of metrics name. Otherwise, all metrics returned.
-        start_time: Optional. An ISO8601 date. Otherwise, current hour is used.
-        end_time: Optional. An ISO8601 date. Otherwise, current time is used.
-        time_grain: Optional. A rollup name, as P1D. OTherwise, default rollup for the metrics is used.
+        webspace_name:
+            The name of the webspace.
+        website_name:
+            The name of the website.
+        metrics:
+            Optional. List of metrics name. Otherwise, all metrics returned.
+        start_time:
+            Optional. An ISO8601 date. Otherwise, current hour is used.
+        end_time:
+            Optional. An ISO8601 date. Otherwise, current time is used.
+        time_grain:
+            Optional. A rollup name, as P1D. OTherwise, default rollup for the metrics is used.
         More information and metrics name at:
         http://msdn.microsoft.com/en-us/library/azure/dn166964.aspx
         '''        
@@ -198,8 +220,10 @@ class WebsiteManagementService(_ServiceManagementClient):
         '''
         Get metric definitions of metrics available of this web site.
 
-        webspace_name: The name of the webspace.
-        website_name: The name of the website.
+        webspace_name:
+            The name of the webspace.
+        website_name:
+            The name of the website.
         '''
         return self._perform_get(self._get_metric_definitions_path(webspace_name, website_name),
                                  MetricDefinitions)
@@ -208,8 +232,10 @@ class WebsiteManagementService(_ServiceManagementClient):
         '''
         Get a site's publish profile as a string
 
-        webspace_name: The name of the webspace.
-        website_name: The name of the website.
+        webspace_name:
+            The name of the webspace.
+        website_name:
+            The name of the website.
         '''
         return self._perform_get(self._get_publishxml_path(webspace_name, website_name),
                                  None).body.decode("utf-8")
@@ -218,8 +244,10 @@ class WebsiteManagementService(_ServiceManagementClient):
         '''
         Get a site's publish profile as an object
 
-        webspace_name: The name of the webspace.
-        website_name: The name of the website.
+        webspace_name:
+            The name of the webspace.
+        website_name:
+            The name of the website.
         '''
         return self._perform_get(self._get_publishxml_path(webspace_name, website_name),
                                  PublishData)
